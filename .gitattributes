@@ -1,0 +1,3 @@
+# Keep the two bundled head checkpoints as regular binary Git objects. Each is
+# below GitHub's per-file limit; the much larger downloaded models are ignored.
+ckpts/*.ckpt -text

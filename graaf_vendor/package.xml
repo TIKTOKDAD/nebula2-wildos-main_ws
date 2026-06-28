@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>graaf_vendor</name>
+  <version>0.0.1</version>
+  <description>Vendor package for the Graaf header-only C++ graph library</description>
+  <maintainer email="user@example.com">user</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

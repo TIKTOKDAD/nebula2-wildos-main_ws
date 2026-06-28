@@ -1,0 +1,31 @@
+# Robot Parameters
+num_cameras: 1
+parent_frame: "odom"
+cam_frame: "camera_color_optical_frame"
+lidar_frame: "rslidar"
+object_mask_topic: "/spot1/object_mask"
+lidar_topic: "/rslidar_points"
+
+# Publisher topics
+triangulated_object_topic: "/triangulated_object"
+navigation_goal_topic: "/imgnav_waypoint"
+particle_viz_topic: "/object_hypotheses"
+
+# ROS2 subscriber params
+qos_history_depth: 30
+syncsub_queue_size: 30
+syncsub_slop: 0.2
+
+# Triangulation config
+max_views: 350
+min_lidar_points: 150
+min_view_distance: 1.0
+particle_generator_config:
+  num_particles: 1000
+  depth_range: [1.0, 100.0]
+  add_odom_drift: false
+use_mask_for_projection: true
+
+# TFLookup Config
+buffer_size: 1
+timer_duration: 0.05

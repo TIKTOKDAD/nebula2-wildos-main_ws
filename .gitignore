@@ -1,0 +1,31 @@
+# Python caches and local environments
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+
+# IDE settings
+.idea/
+.vscode/
+
+# ROS 2 / colcon build outputs
+build/
+install/
+log/
+
+# Downloaded model weights and Hugging Face caches. The two small project head
+# checkpoints remain tracked; README.md documents how to download the rest.
+ckpts/siglip2/
+ckpts/c-radio*.pth.tar
+ckpts/*.onnx
+ckpts/.locks/
+
+# Local generated outputs and backup archives
+viz_outputs/
+*.zip
+
+# Independent Git metadata used only because this workspace exposes .git as a
+# read-only mount.
+.git-local/
