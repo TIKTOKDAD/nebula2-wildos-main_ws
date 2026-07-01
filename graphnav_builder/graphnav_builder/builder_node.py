@@ -98,6 +98,7 @@ class SparseGraphBuilderNode(Node):
             random_seed=self.random_seed,
             sample_against_new_nodes=self.sample_against_new_nodes,
             frontier_connectivity=self.frontier_connectivity,
+            validate_frontier_paths=self.validate_frontier_paths,
             validate_historical_edges=self.validate_historical_edges,
             ensure_robot_anchor=self.ensure_robot_anchor,
             edge_cost_mode=self.edge_cost_mode,
@@ -212,6 +213,7 @@ class SparseGraphBuilderNode(Node):
         self.declare_parameter('num_samples', 1000)
         self.declare_parameter('sample_against_new_nodes', True)
         self.declare_parameter('frontier_connectivity', 4)
+        self.declare_parameter('validate_frontier_paths', True)
         self.declare_parameter('validate_historical_edges', True)
         self.declare_parameter('ensure_robot_anchor', True)
         self.declare_parameter('edge_cost_mode', 'euclidean')
@@ -334,6 +336,9 @@ class SparseGraphBuilderNode(Node):
             value('sample_against_new_nodes')
         )
         self.frontier_connectivity = int(value('frontier_connectivity'))
+        self.validate_frontier_paths = bool(
+            value('validate_frontier_paths')
+        )
         self.validate_historical_edges = bool(
             value('validate_historical_edges')
         )
@@ -911,6 +916,15 @@ class SparseGraphBuilderNode(Node):
                 f'{name}={duration:.4f}s'
                 for name, duration in (
                     self.graph_builder.last_stage_durations.items()
+                )
+            )
+        )
+        self.get_logger().info(
+            'Frontier stage timings: '
+            + ', '.join(
+                f'{name}={duration:.4f}s'
+                for name, duration in (
+                    self.graph_builder.last_frontier_stage_durations.items()
                 )
             )
         )

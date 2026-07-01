@@ -35,11 +35,19 @@ scoring_method: "MULTIPLICATIVE"
 reach_scale: 0.25
 compute_paths: true
 
-# ROS2 frames and topics
+# ROS2 frames and topics  scout
+# parent_frame: odom
+# cam_frame: camera_color_optical_frame
+# camera_img_topic: /camera/camera/color/image_raw/compressed
+# camera_info_topic: /camera/camera/color/camera_info
+# odometry_topic: /dlio/odom_node/odom
+# navigation_graph_topic: /nav_graph
+
+# sim
 parent_frame: odom
-cam_frame: camera_color_optical_frame
-camera_img_topic: /camera/camera/color/image_raw/compressed
-camera_info_topic: /camera/camera/color/camera_info
+cam_frame: camera_0_color_optical_frame
+camera_img_topic: /a300_0000/sensors/camera_0/color/compressed
+camera_info_topic: /a300_0000/sensors/camera_0/color/camera_info
 odometry_topic: /dlio/odom_node/odom
 navigation_graph_topic: /nav_graph
 
@@ -57,27 +65,45 @@ flatten_nav_graph_viz: true
 # 压平显示时使用的固定 Z，高一点可减少与 GridMap/Marker 的深度闪烁。
 nav_graph_viz_z: 0.08
 
-# ROS2 subscriber params
-qos_history_depth: 100
+
+
+# # ROS2 subscriber params  scout
+# qos_history_depth: 100
+# syncsub_queue_size: 150
+# syncsub_slop: 0.2
+
+# sim
+qos_history_depth: 150
 syncsub_queue_size: 150
-syncsub_slop: 0.2
+syncsub_slop: 0.03
 
 # Object Search Config
 object_search_config:
     text_queries:
-        - "car"
+        - "NASA logo"
     pixel_level_seg: false
     mask_threshold: 0.09
     obj_frontier_score: 0.9
     obj_trav_score: 0.9
 
 # TFLookup Config
+# tf_lookup_config:
+#     buffer_size: 1
+#     cache_time: 10
+#     timer_duration: 0.05
+#     lookup_timeout: 0
+#     qos_history_depth: 100
+#     wait_for_oldest: false
+#     clear_buffer_on_process: true
+#     spin_thread: false
+
+# sim
 tf_lookup_config:
     buffer_size: 1
-    cache_time: 10
+    cache_time: 5
     timer_duration: 0.05
     lookup_timeout: 0
-    qos_history_depth: 100
+    qos_history_depth: 30
     wait_for_oldest: false
     clear_buffer_on_process: true
     spin_thread: false

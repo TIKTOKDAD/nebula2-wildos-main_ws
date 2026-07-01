@@ -14,6 +14,8 @@
   <exec_depend>graphnav_msgs</exec_depend>
   <exec_depend>grid_map_msgs</exec_depend>
   <exec_depend>message_filters</exec_depend>
+  <exec_depend>python3-numpy</exec_depend>
+  <exec_depend>python3-opencv</exec_depend>
   <exec_depend>std_msgs</exec_depend>
   <exec_depend>tf2_ros</exec_depend>
   <exec_depend>visualization_msgs</exec_depend>

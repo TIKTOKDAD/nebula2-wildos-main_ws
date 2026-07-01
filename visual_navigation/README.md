@@ -40,6 +40,62 @@ YAML config files for each exectuable are in `configs/`:
 | `explorfm_triangulator_conf.yaml` | Standalone ExploRFM triangulation |
 | `triangulation3d_objsearch_conf.yaml` | Object search triangulation |
 
+## WildOS synchronization tuner
+
+`wildos_sync_tuner` observes the configured image, CameraInfo, odometry,
+NavigationGraph, GridMap, TF, and scored-graph topics. It reports their receive
+rates, timestamp delays, publisher QoS, timestamp span, and the queue depth that
+would have been needed for each observed synchronization group. It only reads
+topics; it does not modify a YAML file or any running node.
+
+Build and run it from the workspace root while the complete navigation system
+is active and moving normally:
+
+```bash
+colcon build --symlink-install --packages-select visual_navigation
+source install/setup.bash
+ros2 run visual_navigation wildos_sync_tuner \
+  --config visual_navigation/configs/wildos_nav_conf.yaml \
+  --graph-config graphnav_builder/config/graphnav_builder.yaml \
+  --duration 60 \
+  --ros-args -p use_sim_time:=true
+```
+
+Omit `--ros-args -p use_sim_time:=true` on a physical robot. For a conservative
+QoS-depth estimate, provide a measured worst-case model inference duration with
+`--processing-seconds`; otherwise the tool uses the scored-graph output period
+as an upper-bound estimate:
+
+```bash
+ros2 run visual_navigation wildos_sync_tuner \
+  --duration 120 --percentile 99 --processing-seconds 1.2
+```
+
+### ObjectMask/LiDAR triangulation tuner
+
+`objmask_sync_tuner` performs the corresponding measurement for
+`triangulation3d_objsearch_conf.yaml`. Keep the target object visible so WildOS
+continues publishing `ObjectMaskWithTf` messages:
+
+```bash
+ros2 run visual_navigation objmask_sync_tuner \
+  --config visual_navigation/configs/triangulation3d_objsearch_conf.yaml \
+  --duration 60 \
+  --ros-args -p use_sim_time:=true
+```
+
+It estimates `syncsub_queue_size` from the actual number of newer LiDAR clouds
+that arrived before each delayed mask, and estimates `syncsub_slop` from the
+nearest mask/cloud timestamp offsets. On a physical robot, omit the simulated
+time arguments. If fewer than three particle outputs are available, pass the
+measured worst processing duration to obtain firm QoS and processing-buffer
+recommendations:
+
+```bash
+ros2 run visual_navigation objmask_sync_tuner \
+  --duration 120 --percentile 99 --processing-seconds 0.4
+```
+
 ## Method Details
 
 ### WildOS

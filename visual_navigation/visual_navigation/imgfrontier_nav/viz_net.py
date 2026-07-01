@@ -39,15 +39,15 @@ class VizModelPred(Node):
         "static_scale_factor": 0.75,
         "model_precision": "FP16",
 
-        "cams_inverted": True,
+        "cams_inverted": False,
 
         # Heatmap Viz Params
         "frontier_threshold": 0.6,
         "traversability_threshold": 0.9,
         "frontier_opening_kernel_size": 20,
 
-        # ROS2 frames and topics
-        "camera_img_topic": "/spot1/realsense/{}/color/image_raw",
+        # ROS2 frames and topics   /a300_0000/sensors/camera_0/color/image
+        "camera_img_topic": "/a300_0000/sensors/camera_{}/color/image",
     }
 
     def __init__(self, config: OmegaConf=OmegaConf.create()):
@@ -128,7 +128,7 @@ class VizModelPred(Node):
 
         self.subscription = self.create_subscription(
             CompressedImage if self.using_compressed_imgs else ImageMsg,
-            config.camera_img_topic.format("front"),
+            config.camera_img_topic.format("0"),
             self.listener_callback,
             2
         )

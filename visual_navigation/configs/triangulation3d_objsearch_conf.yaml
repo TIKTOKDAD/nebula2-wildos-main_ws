@@ -1,17 +1,33 @@
 # Robot Parameters
+# num_cameras: 3
+# parent_frame: "odom"
+# cam_frame: "camera_color_optical_frame"
+# lidar_frame: "rslidar"
+# object_mask_topic: "/spot1/object_mask"
+# lidar_topic: "/rslidar_points"
+
+# sim
 num_cameras: 1
 parent_frame: "odom"
-cam_frame: "camera_color_optical_frame"
-lidar_frame: "rslidar"
+cam_frame: "camera_0_color_optical_frame"
+lidar_frame: "lidar3d_0_sensor_link"
 object_mask_topic: "/spot1/object_mask"
-lidar_topic: "/rslidar_points"
+lidar_topic: "/a300_0000/sensors/lidar3d_0/points"
+
 
 # Publisher topics
 triangulated_object_topic: "/triangulated_object"
-navigation_goal_topic: "/imgnav_waypoint"
+# Raw triangulated goal. initial_goal_mux forwards it to /imgnav_waypoint and
+# replaces the configured initial coarse goal.
+navigation_goal_topic: "/triangulated_imgnav_waypoint"
 particle_viz_topic: "/object_hypotheses"
 
-# ROS2 subscriber params
+# # ROS2 subscriber params
+# qos_history_depth: 30
+# syncsub_queue_size: 30
+# syncsub_slop: 0.2
+
+# sim
 qos_history_depth: 30
 syncsub_queue_size: 30
 syncsub_slop: 0.2
@@ -26,6 +42,10 @@ particle_generator_config:
   add_odom_drift: false
 use_mask_for_projection: true
 
-# TFLookup Config
-buffer_size: 1
-timer_duration: 0.05
+# # TFLookup Config
+# buffer_size: 1
+# timer_duration: 0.05
+
+# sim
+buffer_size: 3
+timer_duration: 0.20

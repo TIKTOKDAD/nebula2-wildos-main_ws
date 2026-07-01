@@ -18,7 +18,13 @@
   <exec_depend>gps_visualization</exec_depend>
   <exec_depend>object_search_msgs</exec_depend>
   <exec_depend>graphnav_msgs</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>nav_msgs</exec_depend>
+  <exec_depend>python3-yaml</exec_depend>
+  <exec_depend>rclpy</exec_depend>
   <exec_depend>ros2launch</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>tf2_msgs</exec_depend>
 
   <export>
     <build_type>ament_python</build_type>

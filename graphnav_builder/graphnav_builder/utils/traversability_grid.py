@@ -7,12 +7,14 @@
 import math
 from typing import Dict, List, Optional, Sequence, Tuple
 
+import cv2
 from graphnav_builder.utils.graph_data import Cell, XY
 from graphnav_builder.utils.transforms import (
     PlanarTransform,
     quaternion_to_planar_yaw,
 )
 from grid_map_msgs.msg import GridMap
+import numpy as np
 from std_msgs.msg import Float32MultiArray
 
 
@@ -275,6 +277,12 @@ class TraversabilityGrid:
         圆形掩码会原地改变状态，因而每次掩码后都必须调用本函数，使采样和
         距离场使用同一份最新分类结果。
         """
+        # 前沿候选完全由 state/active/frontier_endpoint_allowed 和邻接规则
+        # 决定；任何分类重建都必须使旧缓存失效。
+        self._frontier_candidates_cache: Dict[
+            int,
+            List[Tuple[Cell, List[Cell]]],
+        ] = {}
         self.free_cells = []
         self.unknown_cells = []
         self.obstacle_cells = []
@@ -540,6 +548,10 @@ class TraversabilityGrid:
         """
         if connectivity not in (4, 8):
             raise ValueError('frontier connectivity must be 4 or 8')
+        if free_cells is None:
+            cached = self._frontier_candidates_cache.get(connectivity)
+            if cached is not None:
+                return cached
         frontier_to_free_cells: Dict[Cell, List[Cell]] = {}
         candidates = free_cells if free_cells is not None else self.free_cells
         neighbor_function = (
@@ -564,7 +576,9 @@ class TraversabilityGrid:
                     frontier_to_free_cells[unknown_cell] = (
                         adjacent_free_cells
                     )
-            return list(frontier_to_free_cells.items())
+            result = list(frontier_to_free_cells.items())
+            self._frontier_candidates_cache[connectivity] = result
+            return result
 
         # 同一个未知格可能邻接多个自由格，用字典聚合以避免重复前沿。
         for free_cell in candidates:
@@ -576,7 +590,10 @@ class TraversabilityGrid:
                     frontier_to_free_cells.setdefault(neighbor, []).append(
                         free_cell
                     )
-        return list(frontier_to_free_cells.items())
+        result = list(frontier_to_free_cells.items())
+        if free_cells is None:
+            self._frontier_candidates_cache[connectivity] = result
+        return result
 
     @staticmethod
     def neighbors4(cell: Cell) -> Sequence[Cell]:
@@ -927,6 +944,49 @@ class TraversabilityGrid:
         collision-free supercover 直线的起点和终点前自由格必然属于同一分量，
         因而该标签可作为精确路径检查之前的必要条件剪枝。
         """
+        cell_count = self.height * self.width
+        clearance_values = np.asarray(
+            obstacle_clearance,
+            dtype=np.float64,
+        )
+        if clearance_values.size != cell_count:
+            raise ValueError(
+                'Obstacle-clearance field size does not match grid size'
+            )
+        states = np.asarray(self.state, dtype=np.int8).reshape(
+            self.height,
+            self.width,
+        )
+        active = np.asarray(self.active, dtype=np.bool_).reshape(
+            self.height,
+            self.width,
+        )
+        safe_free_mask = (
+            active
+            & (states == self.FREE)
+            & (
+                clearance_values.reshape(self.height, self.width)
+                > clearance
+            )
+        ).astype(np.uint8, copy=False)
+
+        _, labels = cv2.connectedComponents(
+            safe_free_mask,
+            connectivity=4,
+            ltype=cv2.CV_32S,
+        )
+        # OpenCV 以 0 表示背景、1..N 表示前景分量；项目原约定是 -1 表示
+        # 非安全自由格、0..N-1 表示分量，因此整体减一即可完全对齐语义。
+        return (labels.reshape(-1) - 1).tolist()
+
+    # 旧的纯 Python DFS 保留为参考路径，不由生产代码调用；回归测试用它验证
+    # OpenCV 四连通域与原实现产生完全相同的安全格集合和连通分区。
+    def _safe_free_space_components_python_reference(
+        self,
+        obstacle_clearance: Sequence[float],
+        clearance: float,
+    ) -> List[int]:
+        """使用原纯 Python DFS 标记安全自由空间，仅供测试与对照。"""
         labels = [-1] * (self.height * self.width)
         component_idx = 0
         for start_cell in self.free_cells:
@@ -992,13 +1052,17 @@ class TraversabilityGrid:
         include_map_exterior: bool = False,
     ) -> List[float]:
         """计算到目标单元边界的保守距离场（单位：米）。"""
-        return [
-            self.distance_to_cell_boundary(distance)
-            for distance in self.distance_field(
-                targets,
-                include_map_exterior=include_map_exterior,
-            )
-        ]
+        center_distances = self._distance_field_opencv_array(
+            targets,
+            include_map_exterior=include_map_exterior,
+        )
+        # inf 减有限值后仍为 inf；maximum 与原逐格 max(0, distance-radius)
+        # 完全等价，但整个 200x200 后处理留在 NumPy C 循环中执行。
+        boundary_distances = np.maximum(
+            0.0,
+            center_distances - self.cell_radius,
+        )
+        return boundary_distances.reshape(-1).tolist()
 
     def distance_field(
         self,
@@ -1007,12 +1071,82 @@ class TraversabilityGrid:
     ) -> List[float]:
         """计算精确的中心到中心欧氏距离场（单位：米）。
 
-        先在行、列两个维度分别应用一维平方距离变换，得到线性时间的二维 EDT。
-        可选的一圈外部零点把“地图外未知”纳入到未知区域的距离计算。
+        OpenCV 的 ``DIST_MASK_PRECISE`` 在 C++ 中计算精确 L2 距离；输入中的零值
+        是目标单元，非零值是待求距离的单元。可选的一圈零值把“地图外未知”
+        纳入未知区域的距离计算。OpenCV 返回的单位是栅格，发布前转换为米。
         """
-        # 没有目标且不把地图外视为目标时，结果严格为全无穷；无需再运行两遍
-        # Python 一维 EDT。平坦、无障碍的局部地图会频繁命中这个安全快路径。
-        if not targets and not include_map_exterior:
+        return self._distance_field_opencv_array(
+            targets,
+            include_map_exterior=include_map_exterior,
+        ).reshape(-1).tolist()
+
+    def _distance_field_opencv_array(
+        self,
+        targets: Sequence[Cell],
+        include_map_exterior: bool = False,
+    ) -> np.ndarray:
+        """使用 OpenCV 返回行主序二维米制距离数组。"""
+        valid_targets = [
+            (row, col)
+            for row, col in targets
+            if self.in_bounds_cell((row, col))
+        ]
+        # OpenCV 对“整张图没有零值目标”不定义数学上的无穷距离，因此显式保留
+        # 原实现的安全快路径。越界目标与不存在目标具有相同语义。
+        if not valid_targets and not include_map_exterior:
+            return np.full(
+                (self.height, self.width),
+                math.inf,
+                dtype=np.float64,
+            )
+
+        padding = 1 if include_map_exterior else 0
+        rows = self.height + 2 * padding
+        cols = self.width + 2 * padding
+        source = np.ones((rows, cols), dtype=np.uint8)
+
+        if include_map_exterior:
+            # 填充一圈虚拟目标，表示矩形地图以外是未观测/不可靠区域。
+            source[0, :] = 0
+            source[-1, :] = 0
+            source[:, 0] = 0
+            source[:, -1] = 0
+
+        for row, col in valid_targets:
+            source[row + padding, col + padding] = 0
+
+        distances_in_cells = cv2.distanceTransform(
+            source,
+            cv2.DIST_L2,
+            cv2.DIST_MASK_PRECISE,
+        )
+        if padding:
+            distances_in_cells = distances_in_cells[
+                padding:padding + self.height,
+                padding:padding + self.width,
+            ]
+        # astype(float64) 只负责稳定后续 Python 数值运算；EDT 的重计算已经全部
+        # 在 OpenCV C++ 中完成。C-order 展平与内部 row * width + col 完全一致。
+        distances_in_meters = (
+            distances_in_cells.astype(np.float64, copy=False)
+            * self.resolution
+        )
+        return distances_in_meters
+
+    # 旧的纯 Python EDT 实现保留为参考路径，不再由生产代码调用。它用于回归
+    # 测试逐格验证 OpenCV 结果，也可在排查平台相关 OpenCV 问题时临时回退。
+    def _distance_field_python_reference(
+        self,
+        targets: Sequence[Cell],
+        include_map_exterior: bool = False,
+    ) -> List[float]:
+        """使用原纯 Python 可分离 EDT 计算距离场，仅供测试与对照。"""
+        valid_targets = [
+            (row, col)
+            for row, col in targets
+            if self.in_bounds_cell((row, col))
+        ]
+        if not valid_targets and not include_map_exterior:
             return [math.inf] * (self.height * self.width)
 
         padding = 1 if include_map_exterior else 0
@@ -1021,7 +1155,6 @@ class TraversabilityGrid:
         squared = [math.inf] * (rows * cols)
 
         if include_map_exterior:
-            # 填充一圈虚拟目标，表示矩形地图以外是未观测/不可靠区域。
             for row in range(rows):
                 squared[row * cols] = 0.0
                 squared[row * cols + cols - 1] = 0.0
@@ -1029,11 +1162,9 @@ class TraversabilityGrid:
                 squared[col] = 0.0
                 squared[(rows - 1) * cols + col] = 0.0
 
-        for row, col in targets:
-            if self.in_bounds_cell((row, col)):
-                squared[(row + padding) * cols + col + padding] = 0.0
+        for row, col in valid_targets:
+            squared[(row + padding) * cols + col + padding] = 0.0
 
-        # 可分离 EDT：先逐列变换，再逐行变换，与直接二维搜索等价但更高效。
         for col in range(cols):
             values = [squared[row * cols + col] for row in range(rows)]
             transformed = self.squared_distance_transform_1d(values)

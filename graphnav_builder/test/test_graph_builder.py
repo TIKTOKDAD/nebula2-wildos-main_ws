@@ -204,6 +204,49 @@ def test_algorithm4_rejects_frontier_through_narrow_clearance():
     assert not builder.nodes[0].is_frontier
 
 
+def test_algorithm4_can_skip_new_frontier_path_validation():
+    """快速模式按安全分量归属前沿，不执行新 owner 的逐直线路径检查。"""
+    values = [[1.0] * 9 for _ in range(9)]
+    for row in range(1, 8):
+        values[row][4] = 0.0
+    values[4][8] = math.nan
+    grid = make_grid(values)
+    obstacle = grid.clearance_field(grid.obstacle_cells)
+
+    strict = make_builder(
+        traversable_radius=0.1,
+        frontier_connectivity=4,
+    )
+    strict.nodes = [make_node(grid, (4, 1))]
+    strict.update_frontier_nodes(grid, obstacle)
+    assert not strict.nodes[0].is_frontier
+    assert strict.frontier_path_check_count > 0
+
+    fast = make_builder(
+        traversable_radius=0.1,
+        frontier_connectivity=4,
+        validate_frontier_paths=False,
+    )
+    fast.nodes = [make_node(grid, (4, 1))]
+    fast.update_frontier_nodes(grid, obstacle)
+
+    frontier_xy = grid.cell_to_xy((4, 8))
+    assert [
+        (point.x, point.y)
+        for point in fast.nodes[0].frontier_points
+    ] == [pytest.approx(frontier_xy)]
+    assert fast.nodes[0].is_frontier
+    assert fast.frontier_path_check_count == 0
+
+    # 下一帧这些点已经属于历史前沿；快速模式也必须跳过其路径复查，
+    # 同时通过 assigned_frontiers 保持点集合稳定、不重复写入。
+    first_count = len(fast.nodes[0].frontier_points)
+    fast.update_frontier_nodes(grid, obstacle)
+    assert len(fast.nodes[0].frontier_points) == first_count
+    assert fast.nodes[0].is_frontier
+    assert fast.frontier_path_check_count == 0
+
+
 def test_algorithm4_skips_frontier_without_safe_free_side():
     """终端自由侧净空不足时不得逐个尝试所有 owner 节点。"""
     values = [[0.0] * 7 for _ in range(7)]
@@ -483,3 +526,41 @@ def test_update_records_all_algorithm_stage_timings():
         if name != 'total'
     )
     assert builder.last_stage_durations['total'] >= stage_sum
+
+
+def test_update_records_detailed_frontier_stage_timings():
+    """算法 4 应暴露互不重叠、非负且总耗时一致的子阶段计时。"""
+    values = [[math.nan] * 11 for _ in range(11)]
+    for row in range(1, 10):
+        for col in range(1, 10):
+            values[row][col] = 1.0
+    grid = make_grid(values)
+    builder = make_builder(num_samples=20, traversable_radius=0.1)
+
+    builder.update_navigation_graph(grid, (0.0, 0.0))
+
+    expected = {
+        'obstacle_clearance',
+        'node_index',
+        'safe_components',
+        'owner_nodes',
+        'historical_frontiers',
+        'candidate_detection',
+        'candidate_filter',
+        'owner_sort',
+        'new_path_checks',
+        'total',
+    }
+    assert set(builder.last_frontier_stage_durations) == expected
+    assert all(
+        duration >= 0.0
+        for duration in builder.last_frontier_stage_durations.values()
+    )
+    stage_sum = sum(
+        duration
+        for name, duration in (
+            builder.last_frontier_stage_durations.items()
+        )
+        if name != 'total'
+    )
+    assert builder.last_frontier_stage_durations['total'] >= stage_sum

@@ -1,0 +1,18 @@
+initial_goal_mux:
+  ros__parameters:
+    # Raw object position produced by the triangulation node.
+    real_goal_topic: "/triangulated_imgnav_waypoint"
+
+    # Active goal consumed by graphnav_planner.
+    output_goal_topic: "/imgnav_waypoint"
+
+    # Coarse search-area goal used before the first triangulated goal arrives.
+    frame_id: "odom"
+    initial_goal_x: 100.0
+    initial_goal_y: 0.0
+    initial_goal_z: 0.0
+    initial_goal_yaw: 0.0
+
+    # How often to check whether the output topic has a subscriber. The initial
+    # goal itself is published only once.
+    publish_rate: 1.0

@@ -51,6 +51,7 @@ wildos/
 ├── visual_navigation/     # ROS 2 navigation: WildOS, baselines (LRN, ImgFrontierNav)
 ├── triangulation3d/       # Particle-filter-based 3D object triangulation
 ├── graphnav_planner/      # Graph-based path planner (C++)
+├── graphnav_nav2_bridge/  # A300 Nav2 execution bridge for graph goals
 ├── graphnav_msgs/         # ROS 2 message definitions for navigation graph
 ├── object_search_msgs/    # ROS 2 message definitions for object search
 ├── gps_visualization/     # GPS path visualization (ROS 2 C++)
@@ -105,7 +106,7 @@ uv tool install huggingface_hub[cli]
 
 ```bash
 # From your colcon workspace (with this repo cloned/symlinked into src/)
-colcon build --packages-select graphnav_msgs object_search_msgs gps_visualization graphnav_planner triangulation3d visual_navigation
+colcon build --packages-select graphnav_msgs object_search_msgs gps_visualization graphnav_planner graphnav_nav2_bridge triangulation3d visual_navigation
 source install/setup.bash
 ```
 
@@ -168,6 +169,14 @@ ros2 launch visual_navigation wildos_launch.py ns:=spot1 do_object_search:=true
 ros2 launch graphnav_planner graphnav_planner.launch.yml ns:=spot1
 ```
 
+For the mapless Clearpath A300 simulation, the scheme-A Nav2 execution package
+can start the graph planner, Nav2, and the guarded action bridge together:
+
+```bash
+ros2 launch graphnav_nav2_bridge graphnav_nav2.launch.py \
+  start_graphnav_planner:=true
+```
+
 ### Launch Baselines
 
 ```bash
@@ -211,6 +220,7 @@ The following packages must be running alongside WildOS:
 | [`visual_navigation/`](visual_navigation/) | ROS 2 navigation: WildOS pipeline, baselines (LRN, ImgFrontierNav), scoring, triangulation | [README](visual_navigation/README.md) |
 | [`triangulation3d/`](triangulation3d/) | Particle-filter-based 3D object triangulation | [README](triangulation3d/README.md) |
 | [`graphnav_planner/`](graphnav_planner/) | C++ graph-based path planner | — |
+| [`graphnav_nav2_bridge/`](graphnav_nav2_bridge/) | A300 Nav2 execution bridge for graph look-ahead goals | [README](graphnav_nav2_bridge/README.md) |
 | [`graphnav_msgs/`](graphnav_msgs/) | ROS 2 message definitions for navigation graph | — |
 | [`object_search_msgs/`](object_search_msgs/) | ROS 2 message definitions for object search | — |
 | [`gps_visualization/`](gps_visualization/) | GPS path visualization (ROS 2 C++) | — |

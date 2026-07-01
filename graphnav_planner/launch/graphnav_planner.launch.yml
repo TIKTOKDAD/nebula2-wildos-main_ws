@@ -6,7 +6,7 @@ launch:
 
   - arg:
       name: "use_sim_time" 
-      default: "False"
+      default: "True"
       description: "Use simulation time"
 
   - arg:

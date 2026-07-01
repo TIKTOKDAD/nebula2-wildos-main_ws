@@ -42,6 +42,7 @@ class SparseGraphBuilder:
         random_seed: int = 7,
         sample_against_new_nodes: bool = True,
         frontier_connectivity: int = 4,
+        validate_frontier_paths: bool = True,
         validate_historical_edges: bool = True,
         ensure_robot_anchor: bool = True,
         edge_cost_mode: str = 'euclidean',
@@ -81,6 +82,7 @@ class SparseGraphBuilder:
         self.num_samples = int(num_samples)
         self.sample_against_new_nodes = bool(sample_against_new_nodes)
         self.frontier_connectivity = int(frontier_connectivity)
+        self.validate_frontier_paths = bool(validate_frontier_paths)
         self.validate_historical_edges = bool(validate_historical_edges)
         self.ensure_robot_anchor = bool(ensure_robot_anchor)
         self.edge_cost_mode = edge_cost_mode
@@ -100,6 +102,7 @@ class SparseGraphBuilder:
         self.robot_anchor_added = False
         # 最近一帧的细粒度耗时与 frontier 工作量仅用于诊断，不参与算法决策。
         self.last_stage_durations: Dict[str, float] = {}
+        self.last_frontier_stage_durations: Dict[str, float] = {}
         self.frontier_candidate_count = 0
         self.frontier_path_check_count = 0
         self.historical_frontier_check_count = 0
@@ -399,9 +402,22 @@ class SparseGraphBuilder:
         """执行算法 4：清理、检测并安全地归属几何前沿点。
 
         前沿点位于“自由格相邻未知格”的未知格中心，却归属到可安全接近它的
-        最近图节点。历史前沿会在变已知、离开地图、被探索覆盖或失去安全路径时
-        删除，确保前沿集合反映当前局部观测。
+        最近图节点。历史前沿会在变已知、离开地图或被探索覆盖时删除；启用
+        ``validate_frontier_paths`` 时还会删除失去安全路径的历史前沿。
         """
+        frontier_update_start = time.perf_counter()
+        timings = {
+            'obstacle_clearance': 0.0,
+            'node_index': 0.0,
+            'safe_components': 0.0,
+            'owner_nodes': 0.0,
+            'historical_frontiers': 0.0,
+            'candidate_detection': 0.0,
+            'candidate_filter': 0.0,
+            'owner_sort': 0.0,
+            'new_path_checks': 0.0,
+            'total': 0.0,
+        }
         # 每次独立调用也重置计数，避免测试或调试读取到上一帧工作量。
         self.frontier_candidate_count = 0
         self.frontier_path_check_count = 0
@@ -411,14 +427,19 @@ class SparseGraphBuilder:
         self.frontier_component_reject_count = 0
         # 没有图节点就没有前沿的安全归属对象，不能单独发布未知格作为节点。
         if not self.nodes:
+            timings['total'] = time.perf_counter() - frontier_update_start
+            self.last_frontier_stage_durations = timings
             return
+        stage_start = time.perf_counter()
         if obstacle_clearance is None:
             # 允许独立调用本方法；完整更新路径会复用算法 1 已计算的距离场。
             obstacle_clearance = grid.clearance_field(
                 grid.obstacle_cells
             )
+        timings['obstacle_clearance'] = time.perf_counter() - stage_start
 
         # 桶尺寸兼顾前沿归属搜索半径、节点覆盖尺度和最小地图分辨率。
+        stage_start = time.perf_counter()
         bucket_size = max(
             min(self.edge_radius, self.max_free_radius),
             grid.resolution,
@@ -428,12 +449,16 @@ class SparseGraphBuilder:
             (idx, pose_xy(node.pose))
             for idx, node in enumerate(self.nodes)
         )
+        timings['node_index'] = time.perf_counter() - stage_start
+        stage_start = time.perf_counter()
         safe_components = grid.safe_free_space_components(
             obstacle_clearance,
             self.traversable_radius,
         )
+        timings['safe_components'] = time.perf_counter() - stage_start
         # 新 frontier 的 owner 必须位于当前安全自由空间，且与终端自由侧属于
         # 同一四连通分量；这是直线 CollisionFree 成立的必要条件。
+        stage_start = time.perf_counter()
         owner_nodes_by_component: Dict[int, List[int]] = {}
         frontier_owner_positions: Dict[int, XY] = {}
         for node_idx, node in enumerate(self.nodes):
@@ -455,6 +480,7 @@ class SparseGraphBuilder:
             (node.explored_radius for node in self.nodes),
             default=0.0,
         )
+        timings['owner_nodes'] = time.perf_counter() - stage_start
 
         explored_cache: Dict[Tuple[Cell, int], bool] = {}
 
@@ -487,6 +513,7 @@ class SparseGraphBuilder:
         # 同一未知格只能分配给一个节点，防止前沿重复发布和重复规划。
         assigned_frontiers = set()
         # 第一阶段：历史前沿不是永久记忆，必须在当前图上重新验证。
+        stage_start = time.perf_counter()
         for owner_idx, node in enumerate(self.nodes):
             kept_frontier_points = []
             for point in node.frontier_points:
@@ -504,15 +531,17 @@ class SparseGraphBuilder:
                     or frontier_is_explored(cell, xy, owner_idx)
                 ):
                     continue
-                # 即使未知格仍存在，若自由侧通道变窄也不能继续把它作为可达前沿。
-                self.frontier_path_check_count += 1
-                if grid.clearance_approach_cell_to_frontier(
-                    pose_xy(node.pose),
-                    cell,
-                    obstacle_clearance,
-                    self.traversable_radius,
-                ) is None:
-                    continue
+                # 安全模式重新证明历史 owner 的直线接近仍然成立；快速模式与
+                # 新前沿采用同一开关，完全跳过前沿路径验证。
+                if self.validate_frontier_paths:
+                    self.frontier_path_check_count += 1
+                    if grid.clearance_approach_cell_to_frontier(
+                        pose_xy(node.pose),
+                        cell,
+                        obstacle_clearance,
+                        self.traversable_radius,
+                    ) is None:
+                        continue
                 frontier_key = grid.frontier_key(cell)
                 if frontier_key in assigned_frontiers:
                     continue
@@ -521,13 +550,21 @@ class SparseGraphBuilder:
             # 通过“替换列表”原子地丢弃失效点，并让 is_frontier 与列表保持一致。
             node.frontier_points = kept_frontier_points
             node.is_frontier = bool(kept_frontier_points)
+        timings['historical_frontiers'] = (
+            time.perf_counter() - stage_start
+        )
 
         # 再从本帧 Free/Unknown 边界发现全新的未分配前沿。
         # 第二阶段：枚举新的 Free/Unknown 边界；grid 同时返回可从哪一侧自由格接近。
+        stage_start = time.perf_counter()
         frontier_candidates = grid.unknown_frontier_cells_next_to_free(
             connectivity=self.frontier_connectivity,
         )
         self.frontier_candidate_count = len(frontier_candidates)
+        timings['candidate_detection'] = time.perf_counter() - stage_start
+        new_frontiers_start = time.perf_counter()
+        owner_sort_duration = 0.0
+        new_path_check_duration = 0.0
         for frontier_cell, free_side_cells in frontier_candidates:
             frontier_xy = grid.cell_to_xy(frontier_cell)
             frontier_key = grid.frontier_key(frontier_cell)
@@ -572,6 +609,7 @@ class SparseGraphBuilder:
             best_idx = None
             # Algorithm 4 要求在 collision-free 节点中取欧氏最近者；先按精确
             # 距离排序，再遇到首个合法路径时停止，结果与原 argmin 完全一致。
+            sort_start = time.perf_counter()
             ordered_candidates = sorted(
                 candidate_node_indices,
                 key=lambda node_idx: distance_xy(
@@ -579,22 +617,45 @@ class SparseGraphBuilder:
                     frontier_owner_positions[node_idx],
                 ),
             )
-            for node_idx in ordered_candidates:
-                self.frontier_path_check_count += 1
-                approach_cell = grid.clearance_approach_cell_to_frontier(
-                    frontier_owner_positions[node_idx],
-                    frontier_cell,
-                    obstacle_clearance,
-                    self.traversable_radius,
+            owner_sort_duration += time.perf_counter() - sort_start
+            if self.validate_frontier_paths:
+                path_checks_start = time.perf_counter()
+                for node_idx in ordered_candidates:
+                    self.frontier_path_check_count += 1
+                    approach_cell = (
+                        grid.clearance_approach_cell_to_frontier(
+                            frontier_owner_positions[node_idx],
+                            frontier_cell,
+                            obstacle_clearance,
+                            self.traversable_radius,
+                        )
+                    )
+                    if approach_cell is None:
+                        continue
+                    if approach_cell not in safe_free_side_cells:
+                        continue
+                    # 记录路径末尾自由格；其高程是前沿点 Z 的可靠来源。
+                    approach_cells[node_idx] = approach_cell
+                    best_idx = node_idx
+                    break
+                new_path_check_duration += (
+                    time.perf_counter() - path_checks_start
                 )
-                if approach_cell is None:
-                    continue
-                if approach_cell not in safe_free_side_cells:
-                    continue
-                # 记录路径末尾自由格；其高程是前沿点 Z 的可靠来源。
-                approach_cells[node_idx] = approach_cell
-                best_idx = node_idx
-                break
+            else:
+                # 快速模式保留安全自由侧与四连通分量筛选，但不再证明 owner
+                # 到 frontier 的直线安全；直接采用同分量内欧氏距离最近节点。
+                best_idx = ordered_candidates[0]
+                approach_cells[best_idx] = min(
+                    safe_free_side_cells,
+                    key=lambda cell: (
+                        distance_xy(
+                            frontier_owner_positions[best_idx],
+                            grid.cell_to_xy(cell),
+                        ),
+                        cell[0],
+                        cell[1],
+                    ),
+                )
             if best_idx is None:
                 continue
 
@@ -609,6 +670,19 @@ class SparseGraphBuilder:
             self.nodes[best_idx].frontier_points.append(point)
             self.nodes[best_idx].is_frontier = True
             assigned_frontiers.add(frontier_key)
+        new_frontiers_duration = time.perf_counter() - new_frontiers_start
+        timings['owner_sort'] = owner_sort_duration
+        timings['new_path_checks'] = new_path_check_duration
+        # 其余时间包括 explored 过滤、自由侧净空、连通分量筛选、集合构造和
+        # 最终 Point 写入；用残差统计可避免在每个早退分支重复打点。
+        timings['candidate_filter'] = max(
+            0.0,
+            new_frontiers_duration
+            - owner_sort_duration
+            - new_path_check_duration,
+        )
+        timings['total'] = time.perf_counter() - frontier_update_start
+        self.last_frontier_stage_durations = timings
 
     def validate_existing_edges(
         self,

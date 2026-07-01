@@ -34,7 +34,7 @@ graphnav_builder:
     # 通行性数值方向：higher_is_safer（高分安全）或 lower_is_safer（低分安全）。
     traversability_semantics: higher_is_safer
     # 自由/障碍分类阈值；比较方向由 traversability_semantics 决定。
-    safe_threshold: 0.1
+    safe_threshold: 0.15
     # 未知值规则：non_finite，或 negative_or_non_finite（负有限值也算未知）。
     unknown_value_policy: non_finite
 
@@ -42,7 +42,7 @@ graphnav_builder:
     # 3. 局部地图几何与可靠范围：决定当前帧哪些栅格可用于建图。
     # ========================================================================
     # 可靠局部感知半径（米）；开启圆形裁切时，半径外单元变为未知前沿边界。
-    local_map_radius: 8.0
+    local_map_radius: 10.0
     # true 时把矩形 GridMap 的可靠区域裁为以机器人为中心的可靠圆。
     crop_to_local_radius: true
     # 期望的 GridMap 分辨率（米/格），用于部署合同检查而非坐标计算。
@@ -67,6 +67,9 @@ graphnav_builder:
     sample_against_new_nodes: true
     # 前沿邻接规则，只可设为 4（共享边）或 8（包含对角接触）。
     frontier_connectivity: 8
+    # true：验证新前沿和历史前沿的 owner 安全直线；false：两类验证均跳过，
+    # 新前沿在同一安全分量内直接取最近 owner。false 不能保证二者间直线安全。
+    validate_frontier_paths: false 
     # true 时无安全可达图节点会在安全机器人位置添加确定性锚点。
     ensure_robot_anchor: true
     # 持久节点允许的最小世界 X（米）；-.inf 表示不设下界。
@@ -82,7 +85,7 @@ graphnav_builder:
     # 5. 图边与风险代价：决定边能否建立，以及已可通行边的规划代价。
     # ========================================================================
     # 候选图边的最大二维长度（米）；也是每个节点搜索邻居的半径。
-    edge_radius: 8.0
+    edge_radius: 6.0
     # true 时删除被当前局部可见障碍物或狭窄区域否定的历史边。
     validate_historical_edges: true
     # 边代价模式：euclidean，或 integrated_traversability（距离乘以平均风险）。
@@ -122,7 +125,8 @@ graphnav_builder:
     # ApproximateTimeSynchronizer 内部每路订阅保存的候选消息数量。
     syncsub_queue_size: 30
     # 里程计与 GridMap 时间戳允许配对的最大差值（秒）。
-    syncsub_slop: 0.1
+    # syncsub_slop: 0.1 #这个是 scout 实体的值
+    syncsub_slop: 0.05
     # 同步消息对进入重型建图处理前的 FIFO 缓冲容量。
     message_buffer_size: 1
     # true 时缓冲满后丢最旧项以优先实时性；false 时拒绝新项以保持严格时序。
@@ -138,7 +142,8 @@ graphnav_builder:
     # 一对消息等待 TF 的最长实际时间（秒）；小于等于 0 表示不按年龄丢弃。
     tf_message_max_age: 1.0
     # 对同一最旧消息的最大 TF 查询次数；小于等于 0 表示不按次数丢弃。
-    tf_max_lookup_attempts: 20
+    # tf_max_lookup_attempts: 20  #这个是 scout 实体的值
+    tf_max_lookup_attempts: 50
 
     # ========================================================================
     # 8. 上游 GridMap 运行时合同：验证尺寸与前沿供给，尽早定位输入问题。
@@ -174,7 +179,7 @@ graphnav_builder:
     # 10. 可选 RViz 调试显示：当前二维分类与稀疏全局记忆均不参与算法 1--5。
     # ========================================================================
     # true 时发布当前处理帧的平面 FREE/OBSTACLE/UNKNOWN 分类；仅有订阅者时构造。
-    publish_local_classification_markers: true
+    publish_local_classification_markers: false
     # 当前局部二维分类 MarkerArray 话题。
     local_classification_marker_topic: local_traversability_2d_markers
     # 当前局部二维分类最短发布周期（秒）；0 表示每个成功解码帧都可发布。

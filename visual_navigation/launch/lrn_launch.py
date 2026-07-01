@@ -1,5 +1,6 @@
 from launch import LaunchDescription
 from launch_ros.actions import Node
+from launch_ros.substitutions import FindPackageShare
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, TextSubstitution
 from launch.actions import DeclareLaunchArgument
 from launch.conditions import IfCondition
@@ -9,6 +10,11 @@ def generate_launch_description():
     ns = LaunchConfiguration('ns')
     do_object_search = LaunchConfiguration('do_object_search')
     log_level = LaunchConfiguration('log_level')
+    initial_goal_config = PathJoinSubstitution([
+        FindPackageShare('visual_navigation'),
+        'configs',
+        'initial_goal_mux_conf.yaml',
+    ])
 
     return LaunchDescription([
         DeclareLaunchArgument(
@@ -65,6 +71,21 @@ def generate_launch_description():
             remappings=[
                 ('/tf', PathJoinSubstitution([TextSubstitution(text='/'), ns, TextSubstitution(text='tf')])),
                 ('/tf_static', PathJoinSubstitution([TextSubstitution(text='/'), ns, TextSubstitution(text='tf_static')])),
+            ],
+            condition=IfCondition(do_object_search)
+        ),
+
+        Node(
+            package='visual_navigation',
+            executable='initial_goal_mux',
+            name='initial_goal_mux',
+            output='screen',
+            parameters=[
+                initial_goal_config,
+                {'use_sim_time': use_sim_time},
+            ],
+            arguments=[
+                '--ros-args', '--log-level', log_level
             ],
             condition=IfCondition(do_object_search)
         ),

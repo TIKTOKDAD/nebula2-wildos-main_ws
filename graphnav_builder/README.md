@@ -88,6 +88,14 @@ a frontier node through `is_frontier=true`.
 `frontier_connectivity: 4` requires the free and unknown cells to share an
 edge. Set it to 8 to also treat diagonal contact as a frontier.
 
+`validate_frontier_paths: true` checks candidate owners from nearest to
+farthest and assigns the first one with a safe straight approach. Setting it
+to `false` is an approximate performance mode: it keeps safe-free-side and
+connected-component filtering, but directly assigns the nearest owner in a
+matching component without proving straight-line reachability. The same
+switch also skips straight-path revalidation for historical frontiers; their
+known-state, map-boundary, explored-radius, and duplicate checks remain.
+
 Frontier reachability uses a dedicated rule: every rasterized path cell before
 the endpoint must be free and provide more than `traversable_radius` obstacle
 clearance, while the final endpoint must be the selected unknown frontier

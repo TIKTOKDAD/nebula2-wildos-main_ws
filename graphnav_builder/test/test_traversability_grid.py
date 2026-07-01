@@ -117,6 +117,66 @@ def test_distance_field_without_targets_is_infinite():
     assert all(math.isinf(distance) for distance in field)
 
 
+@pytest.mark.parametrize('include_map_exterior', [False, True])
+def test_opencv_distance_field_matches_python_reference(
+    include_map_exterior,
+):
+    """精确 EDT 必须逐格保持原 Python 实现的距离语义。"""
+    grid = make_grid(
+        [[1.0] * 9 for _ in range(7)],
+        resolution=0.1,
+    )
+    targets = [(0, 0), (2, 6), (5, 3), (99, 99)]
+
+    actual = grid.distance_field(
+        targets,
+        include_map_exterior=include_map_exterior,
+    )
+    reference = grid._distance_field_python_reference(
+        targets,
+        include_map_exterior=include_map_exterior,
+    )
+
+    assert actual == pytest.approx(reference, abs=1e-6)
+    actual_clearance = grid.clearance_field(
+        targets,
+        include_map_exterior=include_map_exterior,
+    )
+    reference_clearance = [
+        grid.distance_to_cell_boundary(distance)
+        for distance in reference
+    ]
+    assert actual_clearance == pytest.approx(
+        reference_clearance,
+        abs=1e-6,
+    )
+
+
+def test_opencv_distance_field_with_only_map_exterior_matches_reference():
+    """无内部目标时，地图外圈仍必须产生与旧实现一致的有限距离。"""
+    grid = make_grid(
+        [[1.0] * 6 for _ in range(4)],
+        resolution=0.2,
+    )
+
+    actual = grid.distance_field([], include_map_exterior=True)
+    reference = grid._distance_field_python_reference(
+        [],
+        include_map_exterior=True,
+    )
+
+    assert actual == pytest.approx(reference, abs=1e-6)
+
+
+def test_out_of_bounds_targets_preserve_infinite_fast_path():
+    """仅有越界目标时必须继续返回无穷，不能接受 OpenCV 哨兵距离。"""
+    grid = make_grid([[1.0] * 4 for _ in range(3)])
+
+    field = grid.distance_field([(-1, 0), (3, 4), (99, 99)])
+
+    assert all(math.isinf(distance) for distance in field)
+
+
 def test_safe_free_components_are_split_by_obstacle_wall():
     """安全自由空间标签必须把障碍墙两侧划分为不同四连通分量。"""
     values = [[1.0] * 7 for _ in range(7)]
@@ -132,6 +192,47 @@ def test_safe_free_components_are_split_by_obstacle_wall():
     assert left >= 0
     assert right >= 0
     assert left != right
+
+
+def test_opencv_safe_components_match_python_reference_partition():
+    """OpenCV 四连通域必须保持原 DFS 的安全格集合和连通分区。"""
+    values = []
+    for row in range(15):
+        grid_row = []
+        for col in range(17):
+            selector = (row * 7 + col * 11) % 23
+            if selector == 0:
+                grid_row.append(math.nan)
+            elif selector in (1, 2, 3):
+                grid_row.append(0.0)
+            else:
+                grid_row.append(1.0)
+        values.append(grid_row)
+    grid = make_grid(values, resolution=0.1)
+    grid.apply_circular_mask((0.0, 0.0), radius=0.7)
+    obstacle = grid.clearance_field(grid.obstacle_cells)
+
+    actual = grid.safe_free_space_components(obstacle, clearance=0.12)
+    reference = grid._safe_free_space_components_python_reference(
+        obstacle,
+        clearance=0.12,
+    )
+
+    assert {
+        index for index, label in enumerate(actual) if label < 0
+    } == {
+        index for index, label in enumerate(reference) if label < 0
+    }
+
+    def component_partition(labels):
+        """按成员集合比较分量，避免依赖实现特定的标签编号。"""
+        components = {}
+        for index, label in enumerate(labels):
+            if label >= 0:
+                components.setdefault(label, set()).add(index)
+        return {frozenset(indices) for indices in components.values()}
+
+    assert component_partition(actual) == component_partition(reference)
 
 
 def test_supercover_includes_corner_touching_cells():
@@ -174,6 +275,48 @@ def test_frontier_detection_scans_sparse_unknown_side_without_semantic_change():
         (2, 3),
         (3, 2),
     }
+
+
+def test_default_frontier_detection_is_cached_by_connectivity():
+    """默认全图检测应按邻接规则复用结果，显式子集调用不得污染缓存。"""
+    values = [[1.0] * 7 for _ in range(7)]
+    values[2][2] = math.nan
+    values[4][4] = math.nan
+    grid = make_grid(values)
+
+    first4 = grid.unknown_frontier_cells_next_to_free(connectivity=4)
+    second4 = grid.unknown_frontier_cells_next_to_free(connectivity=4)
+    first8 = grid.unknown_frontier_cells_next_to_free(connectivity=8)
+    second8 = grid.unknown_frontier_cells_next_to_free(connectivity=8)
+
+    assert second4 is first4
+    assert second8 is first8
+    assert first8 is not first4
+
+    explicit = grid.unknown_frontier_cells_next_to_free(
+        free_cells=[(2, 1)],
+        connectivity=4,
+    )
+    assert explicit is not first4
+    assert grid.unknown_frontier_cells_next_to_free(
+        connectivity=4,
+    ) is first4
+
+
+def test_frontier_cache_is_invalidated_when_grid_state_is_rebuilt():
+    """圆形裁剪改变分类后必须重新检测，不能返回裁剪前缓存。"""
+    grid = make_grid([[1.0] * 9 for _ in range(9)])
+    before = grid.unknown_frontier_cells_next_to_free(connectivity=4)
+    assert before == []
+
+    grid.apply_circular_mask((0.0, 0.0), radius=2.5)
+    after = grid.unknown_frontier_cells_next_to_free(connectivity=4)
+
+    assert after is not before
+    assert after
+    assert grid.unknown_frontier_cells_next_to_free(
+        connectivity=4,
+    ) is after
 
 
 def test_collision_free_to_frontier_allows_only_unknown_endpoint():
