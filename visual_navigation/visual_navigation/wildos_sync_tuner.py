@@ -27,7 +27,7 @@ from tf2_msgs.msg import TFMessage
 import yaml
 
 
-CAMERA_NAMES = ("front", "left", "right")
+CAMERA_NAMES = ("0", "1", "2")
 
 
 @dataclass(frozen=True)

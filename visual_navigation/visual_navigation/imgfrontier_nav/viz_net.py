@@ -20,11 +20,16 @@ from explorfm import ExploRFMInference
 from visual_navigation.utils.viz import overlay_heatmap
 
 HOME_DIR = Path.home() / "nebula2-wildos-main"
+# CAMERA_MAPPING = {
+#     0: "front",
+#     1: "left",
+#     2: "right"
+# }    
 CAMERA_MAPPING = {
-    0: "front",
-    1: "left",
-    2: "right"
-}    
+    0: "0",
+    1: "1",
+    2: "2",
+}
 
 class VizModelPred(Node):
     default_config = {

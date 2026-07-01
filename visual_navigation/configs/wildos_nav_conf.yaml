@@ -10,7 +10,7 @@ static_scale_factor: 0.75
 model_precision: FP16
 
 # Nav Params
-num_cameras: 1
+num_cameras: 3
 cams_inverted: false
 num_angular_bins: 16
 reach_in_2D: true
@@ -43,11 +43,20 @@ compute_paths: true
 # odometry_topic: /dlio/odom_node/odom
 # navigation_graph_topic: /nav_graph
 
+
+# # ROS2 frames and topics
+# parent_frame: spot1/odom
+# cam_frame: spot1/realsense/{}_color_optical_frame
+# camera_img_topic: /spot1/realsense/{}/color/image_raw/compressed
+# camera_info_topic: /spot1/realsense/{}/color/camera_info
+# odometry_topic: /spot1/odom
+# navigation_graph_topic: /spot1/nav_graph
+
 # sim
 parent_frame: odom
-cam_frame: camera_0_color_optical_frame
-camera_img_topic: /a300_0000/sensors/camera_0/color/compressed
-camera_info_topic: /a300_0000/sensors/camera_0/color/camera_info
+cam_frame: camera_{}_color_optical_frame
+camera_img_topic: /a300_0000/sensors/camera_{}/color/compressed
+camera_info_topic: /a300_0000/sensors/camera_{}/color/camera_info
 odometry_topic: /dlio/odom_node/odom
 navigation_graph_topic: /nav_graph
 
@@ -74,7 +83,7 @@ nav_graph_viz_z: 0.08
 
 # sim
 qos_history_depth: 150
-syncsub_queue_size: 150
+syncsub_queue_size: 300
 syncsub_slop: 0.03
 
 # Object Search Config

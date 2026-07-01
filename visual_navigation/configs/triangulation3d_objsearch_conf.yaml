@@ -7,9 +7,9 @@
 # lidar_topic: "/rslidar_points"
 
 # sim
-num_cameras: 1
+num_cameras: 3
 parent_frame: "odom"
-cam_frame: "camera_0_color_optical_frame"
+cam_frame: "camera_{}_color_optical_frame"
 lidar_frame: "lidar3d_0_sensor_link"
 object_mask_topic: "/spot1/object_mask"
 lidar_topic: "/a300_0000/sensors/lidar3d_0/points"

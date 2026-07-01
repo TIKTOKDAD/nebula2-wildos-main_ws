@@ -23,11 +23,16 @@ from visual_navigation.imgfrontier_nav.viz import get_path_msg
 from explorfm import ExploRFMInference
 
 HOME_DIR = Path.home() / "nebula2-wildos-main"
+# CAMERA_MAPPING = {
+#     0: "front",
+#     1: "left",
+#     2: "right"
+# }    
 CAMERA_MAPPING = {
-    0: "front",
-    1: "left",
-    2: "right"
-}    
+    0: "0",
+    1: "1",
+    2: "2",
+}
 
 class ImgFrontierNav(GoalNavigator):
     default_config = {

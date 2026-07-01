@@ -28,11 +28,16 @@ from triangulation3d.particle_generator import ParticleGenerator
 from triangulation3d.bbox_generator import BoundingBoxGenerator
 from triangulation3d.triangulator import Triangulator
 
+# CAMERA_MAPPING = {
+#     0: "front",
+#     1: "left",
+#     2: "right"
+# }    
 CAMERA_MAPPING = {
-    0: "front",
-    1: "left",
-    2: "right"
-}    
+    0: "0",
+    1: "1",
+    2: "2",
+}
 
 class ObjectMaskTriangulator(Node):
     default_config = {

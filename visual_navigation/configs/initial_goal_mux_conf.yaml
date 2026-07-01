@@ -1,18 +1,26 @@
 initial_goal_mux:
   ros__parameters:
-    # Raw object position produced by the triangulation node.
+    # 三角测量节点发布的原始目标位姿话题。
+    # 收到第一条坐标有效的目标后，节点会永久切换到真实目标模式，
+    # 并把当前及后续目标转发到 output_goal_topic。
     real_goal_topic: "/triangulated_imgnav_waypoint"
 
-    # Active goal consumed by graphnav_planner.
+    # 提供给 graphnav_planner 的最终目标话题。
+    # 注意：不能与 real_goal_topic 相同，否则会形成消息回环。
     output_goal_topic: "/imgnav_waypoint"
 
-    # Coarse search-area goal used before the first triangulated goal arrives.
+    # 首个有效三角定位目标到达之前使用的初始粗目标。
+    # frame_id 必须存在于当前 TF 树，并与下方 XYZ 坐标所属的参考系一致。
     frame_id: "odom"
-    initial_goal_x: 100.0
+
+    # 初始粗目标在 frame_id 坐标系中的位置，单位：米。
+    initial_goal_x: 150.0
     initial_goal_y: 0.0
     initial_goal_z: 0.0
+
+    # 初始粗目标绕 Z 轴的偏航角，单位：弧度。
     initial_goal_yaw: 0.0
 
-    # How often to check whether the output topic has a subscriber. The initial
-    # goal itself is published only once.
+    # 检查 output_goal_topic 是否已有订阅者的频率，单位：Hz。
+    # 该参数不控制目标的循环发布频率；初始粗目标只会发布一次。
     publish_rate: 1.0
