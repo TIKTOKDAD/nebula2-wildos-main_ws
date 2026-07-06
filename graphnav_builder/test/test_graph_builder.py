@@ -136,6 +136,35 @@ def test_algorithm4_removes_frontier_that_becomes_known():
     assert not builder.nodes[0].is_frontier
 
 
+def test_algorithm4_can_preserve_frontier_outside_current_grid():
+    """算法 4：滚动局部图外的历史前沿可按配置保留。"""
+    old_grid = make_grid([[1.0, math.nan], [1.0, math.nan]])
+    current_grid = make_grid(
+        [[1.0, 1.0], [1.0, 1.0]],
+        center_x=100.0,
+    )
+    x, y = old_grid.cell_to_xy((0, 1))
+
+    strict_node = make_node(old_grid, (0, 0))
+    strict_node.frontier_points = [Point(x=x, y=y, z=0.0)]
+    strict_node.is_frontier = True
+    strict = make_builder(keep_frontiers_outside_grid=False)
+    strict.nodes = [strict_node]
+    strict.update_frontier_nodes(current_grid)
+    assert strict_node.frontier_points == []
+    assert not strict_node.is_frontier
+
+    persistent_node = make_node(old_grid, (0, 0))
+    frontier_point = Point(x=x, y=y, z=0.0)
+    persistent_node.frontier_points = [frontier_point]
+    persistent_node.is_frontier = True
+    persistent = make_builder(keep_frontiers_outside_grid=True)
+    persistent.nodes = [persistent_node]
+    persistent.update_frontier_nodes(current_grid)
+    assert persistent_node.frontier_points == [frontier_point]
+    assert persistent_node.is_frontier
+
+
 def test_algorithm4_removes_historical_frontier_inside_explored_radius():
     """算法 4：落入任一历史探索半径的前沿必须重新检查并移除。"""
     values = [[math.nan] * 5 for _ in range(5)]
@@ -152,6 +181,48 @@ def test_algorithm4_removes_historical_frontier_inside_explored_radius():
     builder = make_builder(frontier_connectivity=4)
     builder.nodes = [owner, covering_node]
     builder.update_frontier_nodes(grid)
+    assert owner.frontier_points == []
+    assert not owner.is_frontier
+
+
+def test_algorithm4_can_skip_historical_frontier_explored_pruning():
+    """算法 4：explored_radius 可只过滤新前沿，不清理历史前沿。"""
+    values = [[math.nan] * 5 for _ in range(5)]
+    values[2][1] = 1.0
+    values[2][2] = 1.0
+    grid = make_grid(values)
+    owner = make_node(grid, (2, 2), explored_radius=0.0)
+    frontier_x, frontier_y = grid.cell_to_xy((2, 3))
+    frontier_point = Point(x=frontier_x, y=frontier_y, z=0.0)
+    owner.frontier_points = [frontier_point]
+    owner.is_frontier = True
+    covering_node = make_node(grid, (2, 1), explored_radius=3.0)
+    builder = make_builder(
+        frontier_connectivity=4,
+        prune_historical_frontiers_by_explored_radius=False,
+    )
+    builder.nodes = [owner, covering_node]
+
+    builder.update_frontier_nodes(grid)
+
+    assert owner.frontier_points == [frontier_point]
+    assert owner.is_frontier
+
+
+def test_algorithm4_explored_radius_still_filters_new_frontiers():
+    """算法 4：关闭历史清理时，新 frontier 仍受 explored_radius 过滤。"""
+    values = [[math.nan] * 5 for _ in range(5)]
+    values[2][2] = 1.0
+    grid = make_grid(values)
+    owner = make_node(grid, (2, 2), explored_radius=3.0)
+    builder = make_builder(
+        frontier_connectivity=4,
+        prune_historical_frontiers_by_explored_radius=False,
+    )
+    builder.nodes = [owner]
+
+    builder.update_frontier_nodes(grid)
+
     assert owner.frontier_points == []
     assert not owner.is_frontier
 
@@ -408,6 +479,20 @@ def test_integrated_edge_cost_increases_with_risk():
     ]
     cost = builder.compute_edge_cost(grid, 0, 1)
     assert cost == pytest.approx(4.0)
+
+
+def test_edge_distance_mode_controls_euclidean_base_cost():
+    """边代价可选择使用平面距离或三维距离。"""
+    grid = make_grid([[1.0] * 5 for _ in range(5)])
+    builder = make_builder(edge_distance_mode='2d')
+    builder.nodes = [
+        make_node_at(0.0, 0.0, 0.0),
+        make_node_at(3.0, 0.0, 4.0),
+    ]
+    assert builder.compute_edge_cost(grid, 0, 1) == pytest.approx(3.0)
+
+    builder.edge_distance_mode = '3d'
+    assert builder.compute_edge_cost(grid, 0, 1) == pytest.approx(5.0)
 
 
 def test_current_node_uses_nearest_global_position():

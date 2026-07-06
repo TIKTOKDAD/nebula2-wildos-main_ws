@@ -1,41 +1,135 @@
-# Model Params
+# WildOS 视觉导航节点配置
+#
+# 启动入口：visual_navigation/launch/wildos_launch.py
+# 读取代码：visual_navigation/visual_navigation/wildos/nav.py
+# 注意：本文件不是标准的 ROS 2 `ros__parameters` 文件，而是由 OmegaConf 直接读取；
+#       未填写的键会与 WildOS_Nav.default_config 合并。
+
+# ============================== 模型参数 ==============================
+
+# 图像前沿分割头权重。代码会在 ~/nebula2-wildos-main/ckpts/ 下查找该文件。
 frontier_ckpt: frontier_head.ckpt
+
+# 可通行性分割头权重，同样相对于 ~/nebula2-wildos-main/ckpts/。
 traversability_ckpt: trav_head.ckpt
+
+# RADIO 视觉骨干的版本/模型标识；必须与两个分割头训练时使用的骨干兼容。
 model_version: c-radio_v3-b
+
+# RADIO 语义适配器名称。null 表示普通导航时不加载适配器；
+# 通过 launch 参数 do_object_search:=true 启用目标搜索时，代码会自动改成 siglip2，
+# 并从 ~/nebula2-wildos-main/ckpts/siglip2 加载适配器权重。
 adaptor_version: null
+
+# 是否在 RADIO 最后一层自注意力中启用 NACLIP 的局部空间一致性增强。
+# 该值应与训练设置保持一致，否则分割头输入特征分布可能发生变化。
 use_naclip: true
+
+# 是否用 summary adaptor 投影空间 patch 特征，使其进入语言对齐空间。
+# 主要供目标搜索的文本—图像相似度计算使用，也应与所用模型/适配器保持一致。
 use_summary_for_spatial: true
+
+# RADIO 骨干输出给前沿/可通行性解码头的通道数。
+# 它直接决定卷积头结构，必须与骨干和 checkpoint 的特征维度一致。
 radio_dim: 768
+
+# 模型推理前的输入分辨率缩放系数；实际高宽还会取整到 RADIO 支持的步长。
+# 值越小通常越省显存、越快，但会损失小目标和细窄通道等空间细节。
 static_scale_factor: 0.75
+
+# 推理数值精度，仅支持 FP16 或 FP32（代码会转为大写匹配枚举）。
+# FP16 更省显存且通常更快；FP32 精度更稳但资源开销更大。
 model_precision: FP16
 
-# Nav Params
+# ============================== 导航参数 ==============================
+
+# 同时参与同步与推理的相机数。当前代码只接受 1 或 3。
+# 相机占位符按 CAMERA_MAPPING 展开为 "0"、"1"、"2"。
 num_cameras: 3
+
+# 相机图像是否倒置。true 时输入图像旋转 180°，投影出的前沿像素坐标也同步翻转。
 cams_inverted: false
+
+# 将 360° 水平目标方向均匀离散成多少个方向 bin。
+# 16 表示每个 bin 相隔 22.5°；发布到图节点的 frontier_scores 长度也等于该值。
 num_angular_bins: 16
+
+# 计算“像素朝向与候选目标方向的一致性”时，是否忽略 Z 分量。
+# true 适用于主要在地面运动的机器人；false 会把上下坡/三维方向纳入评分。
+# 注意：当前 nav.py 在筛选几何前沿距离时固定使用三维距离，此开关只传给像素评分器。
 reach_in_2D: true
 
-# Nav graph params
-frontiers_range: 9.0
-traversability_class: default
-heading_sim_thresh: 0.0
-default_max_score: 0.3
-std_for_default_scores: 80.0
-std_for_frontier_heading: null
-min_frontier_separation: 0.75
+# ============================ 导航图参数 ==============================
 
-# Pixel Scoring Params
-frontier_threshold: 0.6
+# 只对机器人周围该半径内的几何前沿做相机投影和模型评分，单位：米。
+# 当前实现计算 XYZ 三维欧氏距离；增大后可覆盖更远前沿，但投影与评分开销也会上升。
+frontiers_range: 10.0
+
+# NavigationGraph.trav_classes 中要使用的可通行性类别名称。
+# 必须与上游 graphnav_builder 发布的类别完全一致，否则查找索引时会报错。
+traversability_class: default
+
+# 几何前沿朝向与相机光轴朝向的余弦相似度下限，不是角度值。
+# 仅当 cos(theta) > 此值时才认为前沿朝向适合由该相机观察；0.0 约等于夹角 < 90°。
+# 值越高筛选越严格；允许范围通常为 [-1, 1]。
+heading_sim_thresh: 0.0
+
+# 某前沿当前不可见或尚未被模型评分时，按其几何朝向生成默认高斯分数的峰值。
+# 较小可避免未观测前沿压过已有视觉证据；分数会写入 frontier_scores。
+default_max_score: 0.3
+
+# 默认高斯方向分数的标准差，单位：度。越大，未观测前沿在更多方向 bin 上得分较高。
+std_for_default_scores: 80.0
+
+# 对模型算出的方向分数再按几何前沿朝向做高斯调制时的标准差，单位：度。
+# null 表示关闭该调制，直接保留视觉评分；数值越小，朝向约束越强。
+std_for_frontier_heading: null
+
+# 已消失前沿与新前沿之间的最小空间间隔，单位：米。
+# 新前沿若离历史已移除前沿小于此值，其所有方向分数会被清零，避免反复探索同一区域。
+min_frontier_separation: 0.35
+
+# 已消失前沿距离比较使用的维度：
+# - "3d"：使用 node.pose.position 的 XYZ 欧氏距离，保持旧行为；
+# - "2d"：只使用 XY 平面距离，忽略高度差，适合主要在地面平面运动的机器人。
+removed_frontier_distance_mode: "3d"
+
+# ============================ 像素评分参数 ============================
+
+# 前沿网络置信度阈值；低于该值的像素在前沿置信图中置零。 #0.95 可以完整的走好
+frontier_threshold: 0.85
+
+# 对二值前沿区域执行形态学开运算的方形核边长，单位：像素。
+# 用于移除细小噪声区域；0 表示关闭。过大会抹掉真实但较窄的前沿。
 frontier_opening_kernel_size: 20
-traversability_threshold: 0.9
-frontier_w: 2.0
-goal_w: 3.0
-reachability_w: 2.0
+
+# 可通行性置信度阈值。低于该值的像素既不会成为有效前沿，
+# 也会在 MCP 路径搜索代价图中标记为不可达。
+traversability_threshold: 0.4
+
+# 三项权重只在 ADDITIVE/COMBINATION 模式中生效：
+# - ADDITIVE：三项加权平均；
+# - COMBINATION：前沿与目标方向加权平均后，再乘可达性；
+# - MULTIPLICATIVE：代码直接计算 goal * frontier * reachability，以下三个权重均不生效。
+frontier_w: 2.0       # 图像前沿置信度权重
+goal_w: 3.0           # 像素方向与各角度 bin 对齐程度的权重
+reachability_w: 2.0   # 基于可通行图路径代价得到的可达性权重
+
+# 像素综合评分方式：ADDITIVE、COMBINATION 或 MULTIPLICATIVE（区分大小写）。
+# 当前乘法模式要求三种证据同时较高，通常更保守。
 scoring_method: "MULTIPLICATIVE"
-reach_scale: 0.25
+
+# 计算 MCP 路径/可达性代价图时相对原图的缩放比例。
+# 0.25 表示宽高各缩至 1/4（像素总量约 1/16）；越小越快，但路径细节越粗糙。
+reach_scale: 0.25  
+
+# 是否为每个几何前沿、每个方向 bin 回溯最佳像素路径。
+# false 仍会计算分数与可达性，只跳过逐方向 traceback，并以单个前沿点作占位路径。
 compute_paths: true
 
-# ROS2 frames and topics  scout
+# ========================== ROS 2 坐标系与话题 =========================
+
+# 以下为 Scout/单相机示例。切换平台时应整组替换，并同步设置 num_cameras。
 # parent_frame: odom
 # cam_frame: camera_color_optical_frame
 # camera_img_topic: /camera/camera/color/image_raw/compressed
@@ -43,8 +137,7 @@ compute_paths: true
 # odometry_topic: /dlio/odom_node/odom
 # navigation_graph_topic: /nav_graph
 
-
-# # ROS2 frames and topics
+# 以下为 Spot 三相机示例；{} 会依次替换为 0、1、2。
 # parent_frame: spot1/odom
 # cam_frame: spot1/realsense/{}_color_optical_frame
 # camera_img_topic: /spot1/realsense/{}/color/image_raw/compressed
@@ -52,50 +145,99 @@ compute_paths: true
 # odometry_topic: /spot1/odom
 # navigation_graph_topic: /spot1/nav_graph
 
-# sim
+# 当前启用：仿真/当前 A300 话题配置。
+# 全局父坐标系。里程计消息 header.frame_id 必须与此字符串完全一致；
+# 节点还会查询 parent_frame <- cam_frame 的时间同步 TF。
 parent_frame: odom
+
+# 相机光学坐标系模板，{} 按相机索引替换。
 cam_frame: camera_{}_color_optical_frame
+
+# 图像话题模板。名称中含 compressed 时订阅 sensor_msgs/CompressedImage，
+# 否则订阅 sensor_msgs/Image，因此名称和真实消息类型必须匹配。
 camera_img_topic: /a300_0000/sensors/camera_{}/color/compressed
+
+# CameraInfo 话题模板；内参 K、图像宽高及 frame_id 从消息中读取。
 camera_info_topic: /a300_0000/sensors/camera_{}/color/camera_info
+
+# 里程计输入话题；其时间戳也作为同步消息组查询相机 TF 的时间。
 odometry_topic: /dlio/odom_node/odom
+
+# 上游未评分 NavigationGraph 输入话题。
 navigation_graph_topic: /nav_graph
 
-# ROS2 Publisher topics
+# ============================ ROS 2 输出话题 ===========================
+
+# 添加 frontier_scores 与 is_default_scored 属性后的 NavigationGraph。
 scored_navgraph_topic: /scored_nav_graph
+
+# 模型输出、几何前沿及路径等拼接而成的调试图像。
 model_viz_topic: /model_visualization
+
+# 当前距离及相机视野筛选后有效的几何前沿 MarkerArray。
 valid_geofrontiers_topic: /within_range_geofrontiers
+
+# 每个前沿在各角度 bin 上的分数环 MarkerArray。
 score_ring_topic: /score_rings
+
+# 整张导航图及前沿信息的 RViz MarkerArray。
 graph_viz_topic: /nav_graph_viz
 
-# /nav_graph_viz 是否压平成 XY 平面显示。
-# true 适合调试图构建拓扑；false 使用 NavigationGraph 中真实 2.5D 高度。
+# 是否仅在 /nav_graph_viz 中把节点和边压到固定 Z 平面。
+# 只影响调试显示，不改变原 NavigationGraph、距离计算或规划使用的真实高度。
 flatten_nav_graph_viz: true
 
-# 压平显示时使用的固定 Z，高一点可减少与 GridMap/Marker 的深度闪烁。
+# flatten_nav_graph_viz=true 时使用的固定 Z，单位：米。
+# 略高于地面可减少 Marker 与 GridMap 共面造成的深度闪烁。
 nav_graph_viz_z: 0.08
 
+# ========================== ROS 2 订阅与同步 ===========================
 
-
-# # ROS2 subscriber params  scout
+# Scout 配置参考：
 # qos_history_depth: 100
 # syncsub_queue_size: 150
 # syncsub_slop: 0.2
 
-# sim
+# 当前启用：仿真配置。
+# 每个 message_filters 订阅器的 QoS 历史深度。
+# 过小可能在频率抖动时丢消息；过大会增加内存占用和陈旧消息积压。
 qos_history_depth: 150
+
+# ApproximateTimeSynchronizer 为所有输入保存的候选消息数。
+# 当前 3 相机配置需同时匹配 odom、nav_graph、3 路图像和 3 路 CameraInfo，共 8 路输入。
 syncsub_queue_size: 300
+
+# 近似时间同步允许一组消息中最大与最小时间戳之间的容差，单位：秒。
+# 0.03 即 30 ms；太小难以成组，太大会把时刻差较大的传感器数据配在一起。
 syncsub_slop: 0.03
 
-# Object Search Config
+# ============================== 目标搜索 ==============================
+
+# 仅在启动参数 do_object_search:=true 时使用；普通探索模式会忽略本节。
 object_search_config:
+    # 文本查询列表。当前实现明确只支持一个查询，多个条目会触发断言。
     text_queries:
         - "NASA logo"
+
+    # 文本相似度定位是否启用像素级分割流程；false 使用非像素级定位结果。
     pixel_level_seg: false
+
+    # 文本—空间特征相似度生成二值目标 mask 的阈值。
+    # 越低召回率通常越高但误检更多；该值应结合实际目标和场景调节。
     mask_threshold: 0.09
+
+    # 检出目标后，对目标 mask 区域注入的最低前沿置信度。
+    # 实现为 max(模型前沿图, obj_frontier_score * binary_mask)。
     obj_frontier_score: 0.9
+
+    # 检出目标后，对目标 mask 区域注入的最低可通行性置信度。
+    # 应与 traversability_threshold 联动；当前 0.9 低于阈值 0.95，
+    # 因而只有模型原始可通行性本身达到 0.95 的目标像素才会通过可通行筛选。
     obj_trav_score: 0.9
 
-# TFLookup Config
+# ============================== TF 查询 ===============================
+
+# 参考配置（保留作调参对照）：
 # tf_lookup_config:
 #     buffer_size: 1
 #     cache_time: 10
@@ -106,13 +248,34 @@ object_search_config:
 #     clear_buffer_on_process: true
 #     spin_thread: false
 
-# sim
+# 当前启用：同步消息先进入本地缓冲区；定时器在对应时间戳的所有相机 TF
+# 都可查询后，才执行一次较重的模型推理与图评分。
 tf_lookup_config:
+    # 等待 TF 的“已同步消息组”缓冲容量，单位：组；不是 tf2 自身缓存大小。
     buffer_size: 1
+
+    # tf2 Buffer 保存历史变换的时间跨度，单位：秒。
+    # 至少应覆盖消息传输、同步排队和推理造成的总延迟。
     cache_time: 5
+
+    # 检查缓冲区中消息是否已有对应 TF 的定时器周期，单位：秒。
+    # 0.05 表示约 20 Hz 检查；更小响应更快，但会增加查询与日志开销。
     timer_duration: 0.05
+
+    # 单次 lookup_transform 最长阻塞等待时间，单位：秒；0 表示立即查询、不等待。
     lookup_timeout: 0
+
+    # /tf 与 /tf_static 监听器所用 KEEP_LAST QoS 深度。
+    # 此处 TF 监听器固定使用 BEST_EFFORT + VOLATILE。
     qos_history_depth: 30
+
+    # 缓冲已满时是否保留最老消息并拒绝新消息。
+    # false 会丢弃最老消息、保留最新消息，适合实时导航避免处理过期画面。
     wait_for_oldest: false
+
+    # 成功处理一组消息后是否清空整个待处理缓冲区。
     clear_buffer_on_process: true
+
+    # TransformListener 是否使用独立线程 spin。
+    # 当前 WildOS 节点由外层 rclpy.spin 驱动，通常保持 false。
     spin_thread: false

@@ -1,0 +1,21 @@
+dlio_odom_twist_adapter:
+  ros__parameters:
+    # Gazebo 仿真使用 /clock；实车运行时通过 launch 参数设为 false。
+    use_sim_time: true
+
+    # DLIO 原始 Odometry。pose 位于 odom，当前实测 twist 也沿 odom 轴表达。
+    input_odom_topic: /dlio/odom_node/odom
+
+    # 修正后的标准 Odometry：pose 不变，twist 改为 base_link 车体坐标。
+    output_odom_topic: /dlio/odom_node/odom_body_twist
+    output_child_frame_id: base_link
+
+    # 输入 frame 部署检查。false 时不匹配只告警并继续；true 时直接丢弃。
+    expected_world_frame: odom
+    strict_frame_check: false
+
+    # 输入输出队列深度，不改变发布频率；输出频率始终跟随 DLIO 输入频率。
+    qos_depth: 50
+
+    # 每隔多少秒打印一次转换前后速度。设为 0 可关闭周期诊断日志。
+    diagnostic_log_period: 5.0

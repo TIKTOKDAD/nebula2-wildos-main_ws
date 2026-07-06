@@ -1,51 +1,167 @@
-# Robot Parameters
-# num_cameras: 3
-# parent_frame: "odom"
-# cam_frame: "camera_color_optical_frame"
-# lidar_frame: "rslidar"
-# object_mask_topic: "/spot1/object_mask"
-# lidar_topic: "/rslidar_points"
+# ObjectMask + LiDAR 目标三角定位配置
+#
+# 启动入口：
+#   visual_navigation/launch/wildos_launch.py
+#     do_object_search:=true 时启动 obj_mask_triangulation 节点。
+#
+# 读取代码：
+#   visual_navigation/visual_navigation/explorfm_triangulation/obj_mask_triangulation.py
+#
+# 注意：
+#   1. 本文件不是 ROS 2 的 ros__parameters 参数文件，而是由 OmegaConf
+#      直接读取；缩进和 YAML 语法仍然要正确。
+#   2. 这里的 parent_frame 决定三角定位结果发布在哪个全局坐标系下。
+#      当前设置为 odom，因此 /triangulated_imgnav_waypoint 的 frame_id 也是 odom。
+#   3. 坐标变换依赖当前 TF 树；如果 camera/lidar/odom 的 TF 不连通或外参不准，
+#      目标点会偏移或无法发布。
 
-# sim
+# ============================ 机器人与输入话题 ============================
+
+# 参与目标 mask 三角定位的相机数量。源码只支持 1 或 3。
+# 3 相机模式下，cam_frame 中的 {} 会依次替换为 "0"、"1"、"2"。
+# 该值必须与 WildOS 发布的 ObjectMaskWithTf.cam_infos 和 object_mask 第一维一致。
 num_cameras: 3
+
+# 三角定位使用的全局/父坐标系。
+# 节点会把目标估计结果表达在该坐标系下，并用它作为导航目标和 RViz marker
+# 的 header.frame_id。当前为 odom，表示发布 odom 坐标系下的目标点。
+# 应与 wildos_nav_conf.yaml 里的 parent_frame、里程计 header.frame_id 保持一致。
 parent_frame: "odom"
+
+# 相机光学坐标系模板。
+# obj_mask_triangulation 会检查 ObjectMaskWithTf 中每个 CameraInfo.header.frame_id
+# 和每个 camera transform 的 child_frame_id 是否等于这里展开后的名字。
+# 例如当前三相机会期望：
+#   camera_0_color_optical_frame
+#   camera_1_color_optical_frame
+#   camera_2_color_optical_frame
 cam_frame: "camera_{}_color_optical_frame"
+
+# LiDAR 点云所在坐标系。
+# 节点会断言输入 PointCloud2.header.frame_id 与该值完全一致；不一致会直接报错。
+# 同时需要 TF 树里能查询 camera <- lidar 的变换，才能把点云投影到图像 mask 上。
 lidar_frame: "lidar3d_0_sensor_link"
+
+# 视觉目标 mask 输入话题。
+# WildOS 在目标搜索模式下发布 ObjectMaskWithTf，里面包含：
+#   - 二值目标 mask
+#   - CameraInfo
+#   - odom 消息
+#   - odom <- camera 的 TF
+# 当前 WildOS 代码里 object_mask 发布话题为 /spot1/object_mask，所以这里要匹配它。
 object_mask_topic: "/spot1/object_mask"
+
+# LiDAR 点云输入话题。
+# 该点云会被投影到每个相机图像上，用来判断 mask 内是否有足够多的 LiDAR 点。
 lidar_topic: "/a300_0000/sensors/lidar3d_0/points"
 
+# ============================== 输出话题 ==============================
 
-# Publisher topics
+# 三角定位目标的 RViz Marker 输出话题。
+# 发布类型是 visualization_msgs/Marker，显示为绿色球体，用于观察估计出的物体位置。
 triangulated_object_topic: "/triangulated_object"
-# Raw triangulated goal. initial_goal_mux forwards it to /imgnav_waypoint and
-# replaces the configured initial coarse goal.
+
+# 原始三角定位导航目标输出话题。
+# 发布类型是 geometry_msgs/PoseStamped，frame_id 为 parent_frame。
+# initial_goal_mux 会订阅该话题；收到第一条有效目标后，它会把目标转发到
+# /imgnav_waypoint，并替换配置里的初始粗目标。
 navigation_goal_topic: "/triangulated_imgnav_waypoint"
+
+# 粒子/候选目标假设点云输出话题。
+# 发布类型是 sensor_msgs/PointCloud2，坐标系为 parent_frame，主要用于调试
+# 纯视觉多视角三角定位时的粒子分布。
 particle_viz_topic: "/object_hypotheses"
 
-# # ROS2 subscriber params
-# qos_history_depth: 30
-# syncsub_queue_size: 30
-# syncsub_slop: 0.2
+# 三角定位状态 RViz 文字输出话题。
+# 发布类型是 visualization_msgs/MarkerArray，包含三个可在 RViz Marker
+# Namespaces 面板中单独勾选/隐藏的 namespace：
+#   target_source         当前目标来源：视觉三角 / LiDAR 锁定 / 未定位
+#   views_count           当前累计保存的视觉 view 数量，以及 max_views 上限
+#   lidar_points_in_mask  当前处理帧中投影到目标 mask 内的 LiDAR 点数
+#   last_localization     上一次成功更新目标位置的来源和消息时间戳
+status_topic: "/object_triangulation_status"
 
-# sim
+# 状态文字在 RViz 中的高度，单位约为米。
+# RViz 的 TEXT_VIEW_FACING marker 使用 scale.z 控制文字大小；原先约为 0.35，
+# 当前调大到 0.70，远距离观察更清楚。因为它是 3D 世界中的文字，
+# RViz 视图拉近时屏幕上会变大，拉远时会变小。
+status_text_size: 0.70
+
+# 状态文字相对目标点/机器人位置的 Z 方向抬高量，单位：米。
+# 原先约为 2.0；当前抬高到 4.0，避免被地图、点云或机器人模型遮挡。
+status_text_z_offset: 4.0
+
+# 多行状态文字之间的 Z 方向间距，单位：米。
+# 原先约为 0.45；当前增大到 0.85，避免字体变大后行与行重叠。
+status_text_line_spacing: 0.85
+
+# ========================== ROS 2 订阅与同步 ==========================
+
+# message_filters 订阅 ObjectMaskWithTf 和 PointCloud2 时使用的 QoS depth。
+# 过小可能在话题频率抖动时丢样本；过大则会增加积压和内存占用。
 qos_history_depth: 30
+
+# ApproximateTimeSynchronizer 的同步队列长度。
+# 当前只同步 object_mask_topic 与 lidar_topic 两路输入，因此不需要像 WildOS
+# 图像同步那样特别大；频率不稳定时可适当增大。
 syncsub_queue_size: 30
+
+# 近似同步允许的最大时间差，单位：秒。
+# 0.2 表示 mask 与点云时间戳相差 200 ms 内都可能被配成一组。
+# 值太小会难以同步，值太大会让 mask 和点云来自明显不同的时刻。
 syncsub_slop: 0.2
 
-# Triangulation config
+# ============================= 三角定位参数 =============================
+
+# 最多保留多少个相机视角用于纯视觉多视角三角定位。
+# 当 LiDAR 在 mask 内找到足够点时，会优先使用 LiDAR 结果；否则会累计多个
+# 视觉视角，通过 triangulation3d 库估计目标位置。
+# 增大可保留更多历史视角，但会增加计算量和过旧视角带来的漂移风险。
 max_views: 350
+
+# LiDAR 命中 mask 的最少点数阈值。
+# 某个相机里，只有投影到目标 mask 内的 LiDAR 点数 >= 该值，才认为 LiDAR
+# 已经可靠锁定目标，并用这些点估计目标位置。
+# 调大更保守、误检少；调小更容易锁定，但可能被稀疏噪声点带偏。
 min_lidar_points: 150
+
+# 相邻纯视觉视角之间的最小机器人位移，单位：米。
+# 当前视角与上一已加入视角的 odom 位置距离小于该值时，会跳过该视角。
+# 这是为了避免视差太小导致三角测量不稳定。
 min_view_distance: 1.0
+
+# 粒子生成器配置，用于纯视觉多视角三角定位。
+# 当 LiDAR 没有在 mask 中找到足够点时，节点会基于相机 bbox/mask 生成目标
+# 候选粒子，并在多个视角之间融合。
 particle_generator_config:
+
+  # 每个视角生成的候选粒子数量。
+  # 调大通常能覆盖更完整的深度假设，但会增加计算量。
   num_particles: 1000
+
+  # 候选粒子的深度范围，单位：米，格式为 [最小深度, 最大深度]。
+  # 最小深度太小容易采到机器人近处噪声，最大深度太大则会让假设空间过宽。
   depth_range: [1.0, 100.0]
+
+  # 是否在粒子生成时模拟/加入里程计漂移。
+  # 当前为 false，表示直接信任输入 odom 和 TF。若真实里程计漂移明显，开启后
+  # 可能提高鲁棒性，但也会让假设分布更散。
   add_odom_drift: false
+
+# 生成和筛选粒子时是否使用完整目标 mask，而不仅仅使用 bbox。
+# true 通常能利用更精细的物体轮廓，减少 bbox 内背景区域带来的误差；
+# 但如果 mask 质量差、破碎或漏检严重，也可能过滤掉正确假设。
 use_mask_for_projection: true
 
-# # TFLookup Config
-# buffer_size: 1
-# timer_duration: 0.05
+# ============================== TF 与处理节奏 ==============================
 
-# sim
+# 等待处理的同步消息组缓冲容量，单位：组。
+# listener_callback 收到同步好的 mask+点云后，会先放入本地 MessageBuffer；
+# 定时器再逐组取出处理。容量太小可能丢弃来不及处理的消息，太大可能处理过期数据。
 buffer_size: 3
+
+# 定时处理周期，单位：秒。
+# 每隔该时间从缓冲区取出一组消息，执行 LiDAR 投影、mask 内点检查、多视角
+# 三角定位和目标发布。
+# 调小响应更快但计算压力更高；调大更稳但目标更新延迟更明显。
 timer_duration: 0.20

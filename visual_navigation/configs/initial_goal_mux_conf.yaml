@@ -14,12 +14,12 @@ initial_goal_mux:
     frame_id: "odom"
 
     # 初始粗目标在 frame_id 坐标系中的位置，单位：米。
-    initial_goal_x: 150.0
-    initial_goal_y: 0.0
+    initial_goal_x: 90.625
+    initial_goal_y: -133.791
     initial_goal_z: 0.0
 
     # 初始粗目标绕 Z 轴的偏航角，单位：弧度。
-    initial_goal_yaw: 0.0
+    initial_goal_yaw: -0.975
 
     # 检查 output_goal_topic 是否已有订阅者的频率，单位：Hz。
     # 该参数不控制目标的循环发布频率；初始粗目标只会发布一次。

@@ -7,6 +7,10 @@
 #include <map>
 #include <sstream>
 #include <iomanip>
+#include <optional>
+#include <tuple>
+#include <limits>
+#include <string>
 #include <graaflib/graph.h>
 
 #include <std_msgs/msg/color_rgba.hpp>
@@ -221,6 +225,51 @@ class Planner
 public:
   using Polygon = std::vector<Eigen::Vector3f>;
 
+  // 单个前沿节点的虚拟连接代价拆分。frontier_scores_ 仍用于旧的 RViz
+  // 前沿分数显示；这个结构额外保存公式里的中间量，供“已选路径总代价”
+  // 调试文字准确展示变量名和值。
+  struct FrontierCostDebug
+  {
+    double frontier_path_distance = std::numeric_limits<double>::quiet_NaN();
+    double frontier_score = -1.0;
+    double cost_multiplier = std::numeric_limits<double>::quiet_NaN();
+    double frontier_cost = std::numeric_limits<double>::quiet_NaN();
+    bool used_frontier_scores = false;
+  };
+
+  struct CandidateCostDebug
+  {
+    graaf::vertex_id_t node = 0;
+    bool is_frontier = false;
+    bool selected = false;
+    double total_cost = std::numeric_limits<double>::quiet_NaN();
+    double graph_path_cost = std::numeric_limits<double>::quiet_NaN();
+    double virtual_edge_cost = std::numeric_limits<double>::quiet_NaN();
+    FrontierCostDebug frontier;
+    double goal_node_distance = std::numeric_limits<double>::quiet_NaN();
+  };
+
+  // 最近一次 Dijkstra 选中路径的总代价拆分。这里保存的是未乘平衡系数的原始
+  // 两段代价；total_cost 是乘 graph_path_cost_factor_ 和
+  // virtual_edge_cost_factor_ 后参与 Dijkstra 的加权总代价。
+  struct PathCostBreakdown
+  {
+    bool has_path = false;
+    bool ends_at_frontier = false;
+    bool ends_at_goal_radius_node = false;
+    graaf::vertex_id_t start_node = 0;
+    graaf::vertex_id_t selected_node = 0;
+    double total_cost = std::numeric_limits<double>::quiet_NaN();
+    double graph_path_cost = 0.0;
+    double virtual_edge_cost = std::numeric_limits<double>::quiet_NaN();
+    std::vector<std::tuple<graaf::vertex_id_t, graaf::vertex_id_t, double>> graph_edges;
+    FrontierCostDebug frontier;
+    std::vector<CandidateCostDebug> candidate_costs;
+    double goal_node_distance = std::numeric_limits<double>::quiet_NaN();
+    Eigen::Vector3d marker_position = Eigen::Vector3d::Zero();
+    std::string reason;
+  };
+
   Planner(rclcpp::Logger logger);
   void set_trav_class(std::string trav_class);
 
@@ -243,6 +292,8 @@ public:
 
 private:
   UnexploredSpaceMap compute_unexplored_space_map();
+  std::string format_path_cost_breakdown() const;
+  std::string format_candidate_cost_ranking() const;
 
   rclcpp::Logger logger_;
   std::string trav_class_;
@@ -255,16 +306,23 @@ private:
   std::optional<rclcpp::Time> latest_frontier_time_;
 
   std::unordered_map<graaf::vertex_id_t, std::pair<graphnav_msgs::msg::Node, std::pair<double, double>>> frontier_scores_;
+  std::unordered_map<graaf::vertex_id_t, FrontierCostDebug> frontier_cost_debug_;
+  PathCostBreakdown last_path_cost_breakdown_;
 
 public:
+  double graph_path_cost_factor_ = 1.0;
+  double virtual_edge_cost_factor_ = 1.0;
   double frontier_dist_cost_factor_ = 2.0;
   double goal_dist_cost_factor_ = 1.0;
   double frontier_score_factor_ = 10.0;
   double min_local_frontier_score_ = 0.4;
   double local_frontier_radius_ = 7.0;
   double path_smoothness_period_ = 10.0; // seconds
+  double path_cost_breakdown_text_size_ = 0.8;
+  double candidate_cost_ranking_text_size_ = 0.7;
 
   visualization_msgs::msg::MarkerArray get_score_visualization(const rclcpp::Time& stamp, std::string frame_id, bool with_id_text = false) const;
+  visualization_msgs::msg::MarkerArray get_path_cost_breakdown_visualization(const rclcpp::Time& stamp, std::string frame_id) const;
 
 };
 

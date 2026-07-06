@@ -9,7 +9,7 @@ from visual_navigation.utils.tf_lookup_sub import TFLookupSubscriber
 
 from sensor_msgs_py import point_cloud2
 from object_search_msgs.msg import ObjectMaskWithTf
-from visualization_msgs.msg import Marker
+from visualization_msgs.msg import Marker, MarkerArray
 from nav_msgs.msg import Odometry, Path as PathMsg
 from geometry_msgs.msg import PoseStamped
 from sensor_msgs.msg import Image as ImageMsg, CameraInfo, PointCloud2
@@ -53,6 +53,10 @@ class ObjectMaskTriangulator(Node):
         "triangulated_object_topic": "/spot1/triangulated_object",
         "navigation_goal_topic": "/spot1/imgnav_waypoint",
         "particle_viz_topic": "/spot1/object_hypotheses",
+        "status_topic": "/spot1/object_triangulation_status",
+        "status_text_size": 0.90,
+        "status_text_z_offset": 15.0,
+        "status_text_line_spacing": 0.85,
 
         # ROS2 subscriber params
         "qos_history_depth": 10,
@@ -96,7 +100,16 @@ class ObjectMaskTriangulator(Node):
         self.particle_generator = ParticleGenerator(config.particle_generator_config)
         self.triangulator = Triangulator()
         self.triangulated_position = None
+        self.target_source = "none"
+        self.last_localization_source = "none"
+        self.last_localization_stamp = None
+        self.status_text_size = float(config.status_text_size)
+        self.status_text_z_offset = float(config.status_text_z_offset)
+        self.status_text_line_spacing = float(config.status_text_line_spacing)
+        self.lidar_points_in_mask = 0
+        self.lidar_points_in_mask_by_camera = {}
         self.prev_view_pos = None
+        self.last_status_position = np.zeros(3, dtype=float)
         self.found_lidar_in_mask = False
 
         # Subscribers and Publishers
@@ -127,6 +140,9 @@ class ObjectMaskTriangulator(Node):
         )
         self.particle_viz_publisher = self.create_publisher(
             PointCloud2, config.particle_viz_topic, 10
+        )
+        self.status_publisher = self.create_publisher(
+            MarkerArray, config.status_topic, 10
         )
 
     def init_subscribers(self, config):
@@ -160,7 +176,8 @@ class ObjectMaskTriangulator(Node):
 
     def do_processing(self):
         if not self.msg_buffer.buffer:
-            self.get_logger().warn("Message buffer is empty, waiting for messages...")
+            self.publish_status_markers(self.last_status_position)
+            self.get_logger().debug("Message buffer is empty, publishing waiting status.")
             return
 
         # Extract messages and data
@@ -174,9 +191,10 @@ class ObjectMaskTriangulator(Node):
             obj_mask_msg.odom.pose.pose.position.y,
             obj_mask_msg.odom.pose.pose.position.z
         ])
+        self.last_status_position = cur_pos
 
         # Check if LiDAR points fall within the object mask
-        self.check_lidar_in_mask(all_cam_data, lidar_msg)
+        self.check_lidar_in_mask(all_cam_data, lidar_msg, obj_mask_msg.header.stamp)
 
         # Triangulate using multiple views if LiDAR triangulation was not successful
         if not self.found_lidar_in_mask:
@@ -185,12 +203,14 @@ class ObjectMaskTriangulator(Node):
                 dist = np.linalg.norm(cur_pos - self.prev_view_pos)
                 if dist < self.min_view_distance:
                     self.get_logger().info(f"Current view is too close to previous view (distance: {dist:.2f}m), skipping...")
+                    self.publish_status_markers(cur_pos)
                     return
 
             self.add_views(all_cam_data)
             self.prev_view_pos = cur_pos
             if len(self.views) >= 2:
                 self.triangulated_position = self.triangulator.triangulate(self.views)
+                self.record_localization("vision", obj_mask_msg.header.stamp)
                 self.get_logger().info(f"Triangulated position using multiple views: {self.triangulated_position}")
             else:
                 self.get_logger().info("Not enough views for triangulation.")
@@ -200,6 +220,7 @@ class ObjectMaskTriangulator(Node):
         # Publish triangulated position as a navigation goal
         self.publish_navigation_goal_and_marker()
         self.publish_goal_hypotheses()
+        self.publish_status_markers(cur_pos)
 
     def extract_data_from_obj_mask_msg(self, obj_mask_msg):
         """
@@ -251,7 +272,7 @@ class ObjectMaskTriangulator(Node):
 
         return all_cam_data
 
-    def check_lidar_in_mask(self, all_cam_data, lidar_msg):
+    def check_lidar_in_mask(self, all_cam_data, lidar_msg, msg_stamp):
         """
         Check if LiDAR points fall within the object mask.
         """
@@ -259,6 +280,12 @@ class ObjectMaskTriangulator(Node):
         # Check if lidar points fall within the mask
         lidar_points_3d = point_cloud2.read_points(lidar_msg, field_names=("x", "y", "z"), skip_nans=True)
         lidar_points_3d = np.array([np.array(list(pt)) for pt in lidar_points_3d])  # Nx3
+        if lidar_points_3d.size == 0:
+            lidar_points_3d = np.empty((0, 3))
+        self.lidar_points_in_mask = 0
+        self.lidar_points_in_mask_by_camera = {
+            CAMERA_MAPPING[cam_id]: 0 for cam_id in range(self.num_cameras)
+        }
 
         for cam_id in range(self.num_cameras):
             
@@ -317,6 +344,9 @@ class ObjectMaskTriangulator(Node):
             # consider points lying inside the object mask
             inside_mask = cam_obj_mask[lidar_pix[:, 1], lidar_pix[:, 0]].astype(bool)
             lidar_points_cam = lidar_points_cam[inside_mask]
+            num_lidar_points_in_mask = int(lidar_points_cam.shape[0])
+            self.lidar_points_in_mask_by_camera[cam_name] = num_lidar_points_in_mask
+            self.lidar_points_in_mask = max(self.lidar_points_in_mask, num_lidar_points_in_mask)
 
             if lidar_points_cam.shape[0] < self.min_lidar_points:
                 self.get_logger().info(f"Not enough lidar points found in object mask for camera {cam_name}, skipping...")
@@ -330,6 +360,7 @@ class ObjectMaskTriangulator(Node):
             t_wc = all_cam_data[cam_id]["t_wc"]
             triangulated_position_world = R_wc @ triangulated_position_cam.reshape(3, 1) + t_wc  # 3x1
             self.triangulated_position = triangulated_position_world.flatten()
+            self.record_localization("lidar", msg_stamp)
 
             self.get_logger().info(f"Triangulated position using LiDAR points in camera {cam_name}: {self.triangulated_position}")
             self.found_lidar_in_mask = True
@@ -425,6 +456,105 @@ class ObjectMaskTriangulator(Node):
         # Combine the points from all the cameras into a single PointCloud message
         combined_pcl_msg = self.triangulator.combine_points(self.views, pcl_frame_id=self.global_frame)
         self.particle_viz_publisher.publish(combined_pcl_msg)
+
+    def record_localization(self, source, stamp):
+        self.target_source = source
+        self.last_localization_source = source
+        self.last_localization_stamp = stamp
+
+    def source_label(self, source):
+        return {
+            "lidar": "LiDAR lock",
+            "vision": "vision triangulation",
+            "none": "none",
+        }.get(source, str(source))
+
+    def format_stamp_seconds(self, stamp):
+        if stamp is None:
+            return "none"
+        return f"{stamp.sec}.{stamp.nanosec:09d}s"
+
+    def format_stamp_age(self, stamp):
+        if stamp is None:
+            return ""
+        now = self.get_clock().now().to_msg()
+        age = (now.sec - stamp.sec) + 1e-9 * (now.nanosec - stamp.nanosec)
+        return f"; age {max(age, 0.0):.1f}s"
+
+    def publish_status_markers(self, fallback_position):
+        """
+        Publish object triangulation status as selectable RViz marker namespaces.
+        """
+        if self.triangulated_position is not None:
+            anchor = np.array(self.triangulated_position, dtype=float)
+        else:
+            anchor = np.array(fallback_position, dtype=float)
+
+        source_text = f"target source: {self.source_label(self.target_source)}"
+        source_color = {
+            "lidar": (0.1, 0.9, 0.1, 1.0),
+            "vision": (0.2, 0.6, 1.0, 1.0),
+            "none": (0.65, 0.65, 0.65, 1.0),
+        }.get(self.target_source, (0.2, 0.6, 1.0, 1.0))
+        last_localization_text = (
+            f"last localization: {self.source_label(self.last_localization_source)}; "
+            f"time {self.format_stamp_seconds(self.last_localization_stamp)}"
+            f"{self.format_stamp_age(self.last_localization_stamp)}"
+        )
+
+        counts_text = ", ".join(
+            f"cam{cam}: {count}" for cam, count in sorted(self.lidar_points_in_mask_by_camera.items())
+        )
+        if not counts_text:
+            counts_text = "no current frame"
+
+        marker_specs = [
+            (
+                "target_source",
+                source_text,
+                source_color,
+            ),
+            (
+                "views_count",
+                f"views: {len(self.views)} / {self.max_views}",
+                (1.0, 0.85, 0.1, 1.0),
+            ),
+            (
+                "lidar_points_in_mask",
+                f"LiDAR points in mask: max {self.lidar_points_in_mask}; {counts_text}",
+                (0.9, 0.45, 0.1, 1.0),
+            ),
+            (
+                "last_localization",
+                last_localization_text,
+                (0.95, 0.95, 0.95, 1.0),
+            ),
+        ]
+
+        marker_array = MarkerArray()
+        stamp = self.get_clock().now().to_msg()
+        top_z = float(anchor[2]) + self.status_text_z_offset + self.status_text_line_spacing * (len(marker_specs) - 1)
+        for idx, (namespace, text, color) in enumerate(marker_specs):
+            marker = Marker()
+            marker.header.frame_id = self.global_frame
+            marker.header.stamp = stamp
+            marker.ns = namespace
+            marker.id = 0
+            marker.type = Marker.TEXT_VIEW_FACING
+            marker.action = Marker.ADD
+            marker.pose.position.x = float(anchor[0])
+            marker.pose.position.y = float(anchor[1])
+            marker.pose.position.z = top_z - self.status_text_line_spacing * idx
+            marker.pose.orientation.w = 1.0
+            marker.scale.z = self.status_text_size
+            marker.color.r = color[0]
+            marker.color.g = color[1]
+            marker.color.b = color[2]
+            marker.color.a = color[3]
+            marker.text = text
+            marker_array.markers.append(marker)
+
+        self.status_publisher.publish(marker_array)
 
 def main(args=None):
     rclpy.init(args=args)

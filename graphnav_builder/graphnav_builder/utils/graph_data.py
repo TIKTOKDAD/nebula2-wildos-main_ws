@@ -24,8 +24,8 @@ class GraphNodeState:
     """单个导航图节点的可变内部状态。
 
     ``free_radius`` 是节点周围同时避开障碍物和未知区域的安全半径；
-    ``explored_radius`` 只记录已知未知边界的历史扩张范围，用来淘汰已经
-    被探索覆盖的前沿点。前沿点属于节点，但节点自身始终位于自由空间。
+    ``explored_radius`` 只记录已知未知边界的历史扩张范围，用来过滤已经
+    被探索覆盖的前沿候选。前沿点属于节点，但节点自身始终位于自由空间。
     """
 
     pose: Pose
@@ -74,3 +74,13 @@ def distance_xyz(a: Pose, b: Pose) -> float:
         + (float(a.position.y) - float(b.position.y)) ** 2
         + (float(a.position.z) - float(b.position.z)) ** 2
     )
+
+
+def distance_pose(a: Pose, b: Pose, mode: str = '3d') -> float:
+    """按配置计算两个位姿的二维或三维欧氏距离。"""
+    normalized = str(mode).lower()
+    if normalized == '2d':
+        return distance_xy(pose_xy(a), pose_xy(b))
+    if normalized == '3d':
+        return distance_xyz(a, b)
+    raise ValueError("distance mode must be '2d' or '3d'")

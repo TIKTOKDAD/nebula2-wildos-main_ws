@@ -4,7 +4,7 @@ import math
 from typing import Dict, Sequence, Set, Tuple
 
 from graphnav_builder.utils.graph_data import (
-    distance_xyz,
+    distance_pose,
     GraphNodeState,
 )
 from graphnav_msgs.msg import (
@@ -45,10 +45,11 @@ def graph_edge_message(
     from_idx: int,
     to_idx: int,
     edge_cost: float = math.nan,
+    edge_distance_mode: str = '3d',
 ) -> Edge:
     """将一条内部无向边转换为 ``graphnav_msgs/Edge``。
 
-    若调用方没有缓存边代价，则退化为端点的三维欧氏距离；最小值限制为
+    若调用方没有缓存边代价，则退化为端点的欧氏距离；最小值限制为
     ``1e-3``，避免零长度边使依赖正权重的图搜索算法失效。
     """
     edge = Edge()
@@ -56,7 +57,11 @@ def graph_edge_message(
     edge.to_idx = to_idx
     traversability = EdgeTraversability()
     if not math.isfinite(edge_cost):
-        edge_cost = distance_xyz(nodes[from_idx].pose, nodes[to_idx].pose)
+        edge_cost = distance_pose(
+            nodes[from_idx].pose,
+            nodes[to_idx].pose,
+            edge_distance_mode,
+        )
     traversability.traversability_cost = float(max(edge_cost, 1e-3))
     edge.traversability = [traversability]
     return edge
@@ -70,6 +75,7 @@ def navigation_graph_message(
     traversability_class: str,
     frame_id: str,
     stamp,
+    edge_distance_mode: str = '3d',
 ) -> NavigationGraph:
     """构造完整 ``NavigationGraph``，并正确表达空图。
 
@@ -91,6 +97,7 @@ def navigation_graph_message(
             from_idx,
             to_idx,
             edge_costs.get((from_idx, to_idx), math.nan),
+            edge_distance_mode,
         )
         for from_idx, to_idx in sorted(edges)
     ]

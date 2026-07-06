@@ -99,9 +99,14 @@ class SparseGraphBuilderNode(Node):
             sample_against_new_nodes=self.sample_against_new_nodes,
             frontier_connectivity=self.frontier_connectivity,
             validate_frontier_paths=self.validate_frontier_paths,
+            keep_frontiers_outside_grid=self.keep_frontiers_outside_grid,
+            prune_historical_frontiers_by_explored_radius=(
+                self.prune_historical_frontiers_by_explored_radius
+            ),
             validate_historical_edges=self.validate_historical_edges,
             ensure_robot_anchor=self.ensure_robot_anchor,
             edge_cost_mode=self.edge_cost_mode,
+            edge_distance_mode=self.edge_distance_mode,
             traversability_cost_weight=self.traversability_cost_weight,
             min_x=self.min_x,
             max_x=self.max_x,
@@ -159,6 +164,7 @@ class SparseGraphBuilderNode(Node):
             f'r_trav={self.traversable_radius:.2f} m, '
             f'r_max^f={self.max_free_radius:.2f} m, '
             f'r_edge={self.edge_radius:.2f} m, '
+            f'edge_distance={self.edge_distance_mode}, '
             f'odom_qos={self.odom_qos_reliability}/'
             f'{self.odom_qos_depth}, '
             f'grid_qos={self.grid_qos_reliability}/'
@@ -214,9 +220,15 @@ class SparseGraphBuilderNode(Node):
         self.declare_parameter('sample_against_new_nodes', True)
         self.declare_parameter('frontier_connectivity', 4)
         self.declare_parameter('validate_frontier_paths', True)
+        self.declare_parameter('keep_frontiers_outside_grid', False)
+        self.declare_parameter(
+            'prune_historical_frontiers_by_explored_radius',
+            True,
+        )
         self.declare_parameter('validate_historical_edges', True)
         self.declare_parameter('ensure_robot_anchor', True)
         self.declare_parameter('edge_cost_mode', 'euclidean')
+        self.declare_parameter('edge_distance_mode', '3d')
         self.declare_parameter('traversability_cost_weight', 1.0)
         self.declare_parameter('random_seed', 7)
 
@@ -339,11 +351,20 @@ class SparseGraphBuilderNode(Node):
         self.validate_frontier_paths = bool(
             value('validate_frontier_paths')
         )
+        self.keep_frontiers_outside_grid = bool(
+            value('keep_frontiers_outside_grid')
+        )
+        self.prune_historical_frontiers_by_explored_radius = bool(
+            value('prune_historical_frontiers_by_explored_radius')
+        )
         self.validate_historical_edges = bool(
             value('validate_historical_edges')
         )
         self.ensure_robot_anchor = bool(value('ensure_robot_anchor'))
         self.edge_cost_mode = value('edge_cost_mode')
+        self.edge_distance_mode = str(value('edge_distance_mode')).lower()
+        if self.edge_distance_mode not in ('2d', '3d'):
+            raise ValueError("edge_distance_mode must be '2d' or '3d'")
         self.traversability_cost_weight = float(
             value('traversability_cost_weight')
         )
@@ -690,6 +711,7 @@ class SparseGraphBuilderNode(Node):
                 traversability_class=self.traversability_class,
                 frame_id=self.global_frame,
                 stamp=grid_map_msg.header.stamp,
+                edge_distance_mode=self.edge_distance_mode,
             )
         )
 

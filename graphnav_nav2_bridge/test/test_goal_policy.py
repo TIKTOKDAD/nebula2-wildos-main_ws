@@ -2,6 +2,12 @@ import math
 
 from geometry_msgs.msg import PoseStamped
 
+from graphnav_nav2_bridge.goal_pose_to_nav2 import DEFAULT_MIN_UPDATE_DISTANCE
+from graphnav_nav2_bridge.goal_pose_to_nav2 import DEFAULT_MIN_UPDATE_PERIOD
+from graphnav_nav2_bridge.goal_pose_to_nav2 import DEFAULT_MIN_UPDATE_YAW
+from graphnav_nav2_bridge.goal_pose_to_nav2 import DEFAULT_URGENT_UPDATE_DISTANCE
+from graphnav_nav2_bridge.goal_pose_to_nav2 import DEFAULT_URGENT_UPDATE_PERIOD
+from graphnav_nav2_bridge.goal_pose_to_nav2 import DEFAULT_URGENT_UPDATE_YAW
 from graphnav_nav2_bridge.goal_pose_to_nav2 import flatten_goal
 from graphnav_nav2_bridge.goal_pose_to_nav2 import goal_changed
 from graphnav_nav2_bridge.goal_pose_to_nav2 import planar_distance
@@ -40,3 +46,12 @@ def test_flatten_goal_preserves_xy_and_yaw():
     assert math.isclose(flattened.pose.orientation.z, math.sin(0.6))
     assert math.isclose(flattened.pose.orientation.w, math.cos(0.6))
     assert original.pose.position.z == 4.0
+
+
+def test_bridge_defaults_are_responsive_for_moving_lookahead_goals():
+    assert DEFAULT_MIN_UPDATE_DISTANCE == 0.8
+    assert DEFAULT_MIN_UPDATE_YAW == 0.45
+    assert DEFAULT_MIN_UPDATE_PERIOD == 0.5
+    assert DEFAULT_URGENT_UPDATE_DISTANCE == 1.6
+    assert DEFAULT_URGENT_UPDATE_YAW == 0.9
+    assert DEFAULT_URGENT_UPDATE_PERIOD == 0.2

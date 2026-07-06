@@ -1,7 +1,7 @@
 """验证消息缓冲、消息序列化和 ROS 适配层边界行为。"""
 
 import math
-from test.helpers import make_builder, make_grid, make_node
+from test.helpers import make_builder, make_grid, make_node, make_node_at
 
 from builtin_interfaces.msg import Time
 from graphnav_builder.builder_node import (
@@ -84,6 +84,40 @@ def test_navigation_graph_serializes_empty_and_nonempty_states():
     assert graph.current_node_idx == 1
     edge_cost = graph.edges[0].traversability[0].traversability_cost
     assert edge_cost == pytest.approx(7.5)
+
+
+def test_navigation_graph_fallback_edge_cost_respects_distance_mode():
+    """未缓存边代价时，消息兜底距离必须遵循二维/三维开关。"""
+    nodes = [
+        make_node_at(0.0, 0.0, 0.0),
+        make_node_at(3.0, 0.0, 4.0),
+    ]
+
+    graph_2d = navigation_graph_message(
+        nodes=nodes,
+        edges={(0, 1)},
+        edge_costs={},
+        current_node_idx=0,
+        traversability_class='default',
+        frame_id='odom',
+        stamp=Time(),
+        edge_distance_mode='2d',
+    )
+    edge_cost_2d = graph_2d.edges[0].traversability[0].traversability_cost
+    assert edge_cost_2d == pytest.approx(3.0)
+
+    graph_3d = navigation_graph_message(
+        nodes=nodes,
+        edges={(0, 1)},
+        edge_costs={},
+        current_node_idx=0,
+        traversability_class='default',
+        frame_id='odom',
+        stamp=Time(),
+        edge_distance_mode='3d',
+    )
+    edge_cost_3d = graph_3d.edges[0].traversability[0].traversability_cost
+    assert edge_cost_3d == pytest.approx(5.0)
 
 
 def test_listener_callback_only_buffers_synchronized_messages():

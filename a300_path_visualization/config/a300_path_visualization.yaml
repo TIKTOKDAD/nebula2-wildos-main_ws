@@ -1,0 +1,22 @@
+a300_path_recorder:
+  ros__parameters:
+    # Gazebo 仿真必须使用 /clock，保证输出 Path 的时间戳与其他仿真数据一致。
+    use_sim_time: true
+
+    # A300 当前使用 DLIO 里程计。节点从该话题读取车辆已经走过的位置。
+    odom_topic: "/dlio/odom_node/odom"
+
+    # 输出是标准 nav_msgs/Path；在 RViz 中添加 Path Display 后选择此话题。
+    path_topic: "/a300_0000/driven_path"
+
+    # 车辆在 XY 平面至少移动 5 cm 才增加一个点。
+    # 数值越小轨迹越细，但消息更大；对当前 A300，0.05 m 足够平滑。
+    min_sample_distance: 0.05
+
+    # 最多保留 20000 个点，防止长时间仿真使内存和消息无限增长。
+    # 按 0.05 m/点估算，可覆盖约 1000 m 的实际行驶距离。
+    # 设为 0 可以保留全部历史，但不建议用于长时间运行。
+    max_path_points: 20000
+
+    # 每秒最多发布 10 次完整 Path。该参数不改变采样精度，只限制发布频率。
+    publish_rate: 10.0

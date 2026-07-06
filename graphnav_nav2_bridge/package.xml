@@ -10,6 +10,7 @@
   <buildtool_depend>ament_python</buildtool_depend>
 
   <exec_depend>action_msgs</exec_depend>
+  <exec_depend>dlio_odom_twist_adapter</exec_depend>
   <exec_depend>geometry_msgs</exec_depend>
   <exec_depend>graphnav_planner</exec_depend>
   <exec_depend>launch</exec_depend>
@@ -25,6 +26,7 @@
   <exec_depend>nav2_navfn_planner</exec_depend>
   <exec_depend>nav2_msgs</exec_depend>
   <exec_depend>nav2_planner</exec_depend>
+  <exec_depend>nav2_rotation_shim_controller</exec_depend>
   <exec_depend>nav2_smoother</exec_depend>
   <exec_depend>nav2_velocity_smoother</exec_depend>
   <exec_depend>rclpy</exec_depend>

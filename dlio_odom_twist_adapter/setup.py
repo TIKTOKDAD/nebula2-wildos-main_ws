@@ -1,3 +1,5 @@
+"""dlio_odom_twist_adapter 的 ament_python 安装定义."""
+
 from glob import glob
 import os
 
@@ -5,7 +7,7 @@ from setuptools import find_packages
 from setuptools import setup
 
 
-package_name = "graphnav_nav2_bridge"
+package_name = "dlio_odom_twist_adapter"
 
 
 setup(
@@ -17,7 +19,7 @@ setup(
             "share/ament_index/resource_index/packages",
             [f"resource/{package_name}"],
         ),
-        (f"share/{package_name}", ["package.xml", "README.md"]),
+        (f"share/{package_name}", ["package.xml", "README_CN.md"]),
         (
             os.path.join("share", package_name, "launch"),
             glob("launch/*.launch.py"),
@@ -26,24 +28,18 @@ setup(
             os.path.join("share", package_name, "config"),
             glob("config/*.yaml"),
         ),
-        (
-            os.path.join("share", package_name, "behavior_trees"),
-            glob("behavior_trees/*.xml"),
-        ),
     ],
     install_requires=["setuptools"],
     zip_safe=True,
     maintainer="omar",
     maintainer_email="omar@example.com",
-    description="Execute graphnav look-ahead goals with Nav2 on the A300.",
+    description="Convert DLIO world-frame odometry twist into base_link.",
     license="Apache-2.0",
     tests_require=["pytest"],
     entry_points={
         "console_scripts": [
-            "goal_pose_to_nav2 = "
-            "graphnav_nav2_bridge.goal_pose_to_nav2:main",
-            "simple_goal_pose_to_nav2 = "
-            "graphnav_nav2_bridge.simple_goal_pose_to_nav2:main",
+            "dlio_odom_twist_adapter = "
+            "dlio_odom_twist_adapter.adapter_node:main",
         ],
     },
 )

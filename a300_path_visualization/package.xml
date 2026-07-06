@@ -1,0 +1,30 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd"
+           schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>a300_path_visualization</name>
+  <version>0.1.0</version>
+  <description>将 A300 的里程计数据累计为可在 RViz 中显示的实际行驶路径。</description>
+
+  <maintainer email="omar@example.com">Omar</maintainer>
+  <license>Apache-2.0</license>
+
+  <!-- ament_cmake 负责本 C++ ROS 2 包的配置、构建与安装。 -->
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <!-- rclcpp：节点、参数、订阅者、发布者和定时器。 -->
+  <depend>rclcpp</depend>
+  <!-- nav_msgs：输入 Odometry 和输出 Path。 -->
+  <depend>nav_msgs</depend>
+  <!-- geometry_msgs：Path 中每个 PoseStamped 轨迹点的消息类型。 -->
+  <depend>geometry_msgs</depend>
+
+  <!-- Python launch 文件运行时需要的依赖。 -->
+  <exec_depend>ament_index_python</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

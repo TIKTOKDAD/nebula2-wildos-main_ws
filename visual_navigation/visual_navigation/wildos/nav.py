@@ -60,6 +60,7 @@ class WildOS_Nav(TFLookupSubscriber):
         "std_for_default_scores": 30.0,  # degrees
         "std_for_frontier_heading": 30.0,  # degrees
         "min_frontier_separation": 0.5,  # meters
+        "removed_frontier_distance_mode": "3d",
 
         # Pixel Scoring Params
         "frontier_threshold": 0.6,
@@ -166,6 +167,13 @@ class WildOS_Nav(TFLookupSubscriber):
         self.std_for_default_scores = config.std_for_default_scores
         self.std_for_frontier_heading = config.std_for_frontier_heading
         self.min_frontier_separation = config.min_frontier_separation
+        self.removed_frontier_distance_mode = str(
+            config.removed_frontier_distance_mode
+        ).lower()
+        if self.removed_frontier_distance_mode not in ("2d", "3d"):
+            raise ValueError(
+                "removed_frontier_distance_mode must be '2d' or '3d'"
+            )
 
         # Initialize pixel scoring params
         frontier_threshold = config.frontier_threshold
@@ -532,7 +540,7 @@ class WildOS_Nav(TFLookupSubscriber):
                 # Check if this frontier is too close to any removed frontier
                 # set scores to zero if too close to removed frontier
                 if len(self.removed_frontier_positions) > 0:
-                    distances = np.linalg.norm(self.removed_frontier_positions - frontier_pos, axis=1)
+                    distances = self.get_removed_frontier_distances(frontier_pos)
                     if np.any(distances < self.min_frontier_separation):
                         scores *= 0.0
 
@@ -590,7 +598,7 @@ class WildOS_Nav(TFLookupSubscriber):
                 # Check if this frontier is too close to any removed frontier
                 # set scores to zero if too close to removed frontier
                 if len(self.removed_frontier_positions) > 0:
-                    distances = np.linalg.norm(self.removed_frontier_positions - node_pos, axis=1)
+                    distances = self.get_removed_frontier_distances(node_pos)
                     if np.any(distances < self.min_frontier_separation):
                         scores *= 0.0
 
@@ -609,6 +617,12 @@ class WildOS_Nav(TFLookupSubscriber):
                 self.frontier_uuid_to_scores[uuid] = (scores, node)
 
         return scored_navgraph, removed_uuids, updated_uuids
+
+    def get_removed_frontier_distances(self, frontier_pos: np.ndarray) -> np.ndarray:
+        deltas = self.removed_frontier_positions - frontier_pos
+        if self.removed_frontier_distance_mode == "2d":
+            deltas = deltas[:, :2]
+        return np.linalg.norm(deltas, axis=1)
     
     @staticmethod
     def uuid_to_str(uuid):

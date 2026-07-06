@@ -1,61 +1,179 @@
+# GraphNav 全局图规划与局部前视目标生成。
+#
+# 本文件启动两个组件：
+#   1) planner_node：把最终任务目标接到稀疏导航图上，计算完整图路径；
+#   2) path_follower_node：沿完整路径不断生成机器人附近的局部前视目标。
+#
+# 数据流：
+#   scored_nav_graph + imgnav_waypoint + /dlio/odom_node/odom
+#       -> graphnav_planner（在稀疏导航图上规划）
+#       -> graphnav_planner/path（完整图路径）
+#       -> graphnav_path_follower（从路径上选取前视点）
+#       -> goal_pose（供 Nav2 桥接节点或其他局部控制器使用）
+#
+# 注意：这里的 goal_pose 是随机器人前进而移动的“局部前视目标”，不是最终任务目标。
+# 若规划路径频繁切换分支，goal_pose 也会左右跳变；相关参数主要是
+# path_smoothness_period、local_frontier_radius 和 wp_lookahead_dist。
+
 launch:
+  # ========================================================================
+  # 1. Launch 参数
+  # ========================================================================
+  # 机器人命名空间。空字符串表示节点和相对话题位于根命名空间。
+  # 多机器人运行时可传入如 ns:=a300_0000。
   - arg:
       name: "ns"
       default: ""
       description: "Namespace of the robot"
 
+  # true 时下方两个节点使用 /clock；仿真环境通常设为 true，实机通常设为 false。
+  # 若使用仿真时间但没有 /clock，涉及时间戳的 TF 查询和路径超时判断会异常。
   - arg:
-      name: "use_sim_time" 
+      name: "use_sim_time"
       default: "True"
       description: "Use simulation time"
 
+  # 是否把 ROS 公共管理话题（rosout、parameter_events、diagnostics）放入 ns。
+  # 该开关不影响下方单独配置的数据话题 remap。
   - arg:
       name: "remap_ros_topics_to_ns"
       default: "False"
       description: "Remap ros topics to namespace"
 
+  # 是否把 /tf 和 /tf_static 改到机器人命名空间下。
+  # 只有 TF 发布端也采用同样命名空间时才应开启，否则节点将无法查询坐标变换。
   - arg:
       name: "remap_tf_to_ns"
       default: "False"
       description: "Remap tf/tf_static to namespace"
 
-
+  # ========================================================================
+  # 2. 稀疏导航图规划器
+  # ========================================================================
+  # 输入带前沿分数的 NavigationGraph、最终视觉目标和里程计，在图上执行
+  # Dijkstra 规划并发布 nav_msgs/Path。收到新图或新目标时重新规划；仅收到
+  # 新里程计不会触发重规划，里程计只用于判断机器人是否已靠近最终目标。
   - node:
       pkg: "graphnav_planner"
       exec: "planner_node"
       name: "graphnav_planner"
       output: screen
       namespace: $(var ns)
+
+      # 调试崩溃时可取消下一行注释，让节点由 gdb 批处理模式启动。
       # launch-prefix: "gdb -batch --return-child-result -ex run -ex backtrace --args"
+
       param:
+        # 与 launch 的仿真时间设置保持一致。
         - name: use_sim_time
           value: $(var use_sim_time)
-        - name: frontier_dist_cost_factor
+
+        # 已知 NavigationGraph 路径代价和最后一段虚拟连接代价的平衡系数：
+        #   total_cost = graph_path_cost * graph_path_cost_factor
+        #              + virtual_edge_cost * virtual_edge_cost_factor
+        # graph_path_cost 来自已知图边 traversability_cost 累计；
+        # virtual_edge_cost 来自下面的 frontier_cost 或 goal_cost。
+        # 两个系数都应为非负数；设大的一段会在选路中被更重惩罚。
+        - name: graph_path_cost_factor
           value: 2.0
+
+        - name: virtual_edge_cost_factor
+          value: 1.0
+
+        # 无有效 frontier_scores 时，前沿到最终目标的“未知空间距离”代价乘数：  这个三呢三个尼应该是给baselin用的
+        #   frontier_cost = frontier_path_distance * frontier_dist_cost_factor
+        # 数值越大，规划器越不愿选择需要穿过较长未知区域的前沿。
+        - name: frontier_dist_cost_factor
+          value: 1.0
+
+        # 最终目标半径内的图节点连接到“虚拟最终目标”时使用的代价乘数：  那么就不使用视觉前沿代价了。
+        #   goal_cost = goal_dist_cost_factor * 节点到最终目标的三维直线距离
+        # 源码默认值为 1.0；本文件使用 2.0，使这段连接距离在总成本中更显著。
         - name: goal_dist_cost_factor
           value: 1.0
+
+        # frontier_scores 对前沿代价的影响强度。有有效分数时使用：
+        #   frontier_cost = 未知空间距离 * (1 - factor * ln(score))
+        # score 应为正数；在常见的 0~1 范围内，数值越低惩罚越大。
         - name: frontier_score_factor
-          value: 20.0
+          value: 15.0
+
+        # 路径保持阶段允许继续考虑的局部前沿最低分数。
+        # 判断条件是严格大于该值；仅对带 frontier_scores 的前沿生效。
         - name: min_local_frontier_score
           value: 0.4
+
+        # 局部前沿搜索半径（米），以最近一次路径选中的前沿节点为中心。
+        # 半径内满足分数条件的候选可在路径保持阶段参与规划；对于没有
+        # frontier_scores 的图，仅检查是否位于该半径内。
         - name: local_frontier_radius
-          value: 10.0
+          value: 8.0
+
+        # 路径/前沿选择保持时间（秒）。在此时间窗内，若上次前沿附近仍存在
+        # 合格候选，则只把这些局部候选接到虚拟目标，以减少动态图更新造成的
+        # 左右分支切换。候选消失时仍会立即退回全局前沿集合。
+        # 0.0 基本等同关闭该时间滞回，每次重规划都可在全部前沿中重新选择。
         - name: path_smoothness_period
           value: 0.0
+
+        # RViz path_cost_breakdown 调试文字的基础字高，单位约为米。
+        # 该 topic 使用 TEXT_VIEW_FACING marker；文字是 3D 世界中的物体，
+        # 因此 RViz 视图拉近时屏幕上会变大，拉远时会变小。
+        - name: path_cost_breakdown_text_size
+          value: 0.8
+
+        # 右上角候选代价排行文字的基础字高，单位约为米。
+        - name: candidate_cost_ranking_text_size
+          value: 0.7
+
+        # 从 NavigationGraph.trav_classes 中选择的通行性类别。
+        # 规划器使用该类别对应的边代价、已探索半径、前沿标记及前沿点。
+        # 输入图中必须存在同名类别，否则无法建立有效的规划图。
         - name: trav_class
           value: "default"
+
+        # 最终目标连接/到达半径（米，按三维欧氏距离计算）。距最终目标严格小于
+        # 该值的图节点可连接到虚拟目标。规划期间若最新里程计也位于该半径内，
+        # 节点会清除内部保存的任务目标；仅更新里程计本身不会触发这项检查。
         - name: goal_radius
           value: 3.0
+
       remap:
+        # 规划器私有输入 ~/nav_graph：WildOS 输出的带分数导航图。
+        # 根命名空间下实际解析为 /graphnav_planner/nav_graph；remap 后订阅
+        # /scored_nav_graph。右侧为相对名称，设置 ns 后会随 ns 改变。
         - from: "~/nav_graph"
           to: "scored_nav_graph"
+
+        # 规划器私有里程计输入。绝对话题名不会自动附加 ns。
+        # goal_pose 会通过 TF 转到这个里程计消息的 header.frame_id 后判断到达。
         - from: "~/odom"
           to: "/dlio/odom_node/odom"
+
+        # 最终任务目标输入，例如视觉导航/目标搜索产生的 PoseStamped。
+        # 规划时目标会通过 TF 转换到导航图 header.frame_id；必须保证两坐标系
+        # 在导航图时间戳处存在可查询的变换。
         - from: "~/goal_pose"
           to: "imgnav_waypoint"
+
+        # 默认路径输出为 /<ns>/graphnav_planner/path（ns 为空时省略该层）。
+        # 路径使用导航图坐标系；中间点朝向下一路径点，末点保留任务目标朝向。
+        # 无可行路径时仍会发布 poses 为空的 Path。需要固定公共名称时可启用：
         # - from: "~/path"
         #   to: "graph_nav_path"
-        # namespaced default ros topics
+
+        # 另有三个未 remap 的按需调试输出：
+        #   ~unexplored_space_map -> /<ns>/graphnav_planner/unexplored_space_map
+        #   ~frontier_scores      -> /<ns>/graphnav_planner/frontier_scores
+        #   ~path_cost_breakdown  -> /<ns>/graphnav_planner/path_cost_breakdown
+        # path_cost_breakdown 是 RViz MarkerArray 文字，包含两个可在 RViz Namespaces
+        # 面板中独立勾选的 namespace：
+        #   path_cost_breakdown     左上角显示本轮 Dijkstra 选中路径的 total_cost、
+        #                           graph_path_cost、virtual_edge_cost、平衡系数和公式变量；
+        #   candidate_cost_ranking  右上角显示当前实际候选集合的总代价排行。
+        # 只有存在订阅者时，规划器才会构造并发布对应调试消息。
+
+        # ROS/TF 公共话题是否跟随机器人命名空间，由顶部开关控制。
         - from: "/tf"
           to: $(eval "'/$(var ns)/tf' if $(var remap_tf_to_ns) else '/tf'")
         - from: "/tf_static"
@@ -66,20 +184,38 @@ launch:
           to: $(eval "'/$(var ns)/parameter_events' if $(var remap_ros_topics_to_ns) else '/parameter_events'")
         - from: "/diagnostics"
           to: $(eval "'/$(var ns)/diagnostics' if $(var remap_ros_topics_to_ns) else '/diagnostics'")
+
+  # ========================================================================
+  # 3. 路径前视点生成器
+  # ========================================================================
+  # 根据机器人当前位置在完整图路径上寻找前视点，并在每次收到里程计时发布
+  # PoseStamped 局部目标。它不直接输出速度，也不执行 Nav2 action；下游通常
+  # 由 graphnav_nav2_bridge 对高频目标限流后发送 NavigateToPose action。
   - node:
       pkg: "graphnav_planner"
       exec: "path_follower_node"
       name: "graphnav_path_follower"
       output: screen
       namespace: $(var ns)
+
       remap:
+        # 接收上方规划器的默认私有路径输出。两节点处于同一个 ns 时，
+        # 该相对名称会解析到 /<ns>/graphnav_planner/path，与上方输出匹配。
         - from: "~/path"
           to: "graphnav_planner/path"
+
+        # 用里程计位置寻找路径上的最近点和前视点。节点先通过 TF 把里程计
+        # 位姿转换到 Path.header.frame_id，因此 TF 链必须连通。
         - from: "~/odom"
           to: "/dlio/odom_node/odom"
+
+        # 发布局部前视目标。右侧为相对名称，会随 ns 改变。
+        # graphnav_nav2_bridge 默认从根命名空间的 /goal_pose 接收；使用非空 ns
+        # 时，应同步配置桥接节点的 goal_topic 或增加对应 remap。
         - from: "~/goal_pose"
           to: "goal_pose"
-        # namespaced default ros topics
+
+        # 与规划器使用完全相同的 TF 和 ROS 公共话题规则。
         - from: "/tf"
           to: $(eval "'/$(var ns)/tf' if $(var remap_tf_to_ns) else '/tf'")
         - from: "/tf_static"
@@ -90,8 +226,31 @@ launch:
           to: $(eval "'/$(var ns)/parameter_events' if $(var remap_ros_topics_to_ns) else '/parameter_events'")
         - from: "/diagnostics"
           to: $(eval "'/$(var ns)/diagnostics' if $(var remap_ros_topics_to_ns) else '/diagnostics'")
+
       param:
+        # 前视距离（米）。实现使用“机器人当前位置到各路径点的三维直线距离”，
+        # 并在距离跨过该阈值的相邻两点间插值；它不是沿路径累计的弧长。
+        # 较大值通常更平滑但可能切弯，较小值跟踪更紧但对路径抖动更敏感。
         - name: wp_lookahead_dist
           value: 5.0
+
+        # 是否启用急弯限制。false 表示不检查相邻路径段夹角；true 时才使用
+        # max_lookahead_turn_angle_deg，防止前视点越过过大的路径折角。
+        - name: enable_lookahead_turn_limit
+          value: true   # 当前系统启用该保护
+
+        # enable_lookahead_turn_limit=true 时生效：
+        # 允许跨过的最大相邻路径段夹角，源码会将输入限制到 [0, 180] 度。
+        # 当前设为 120 度，因此普通 90 度转角可以跨过；更接近掉头的折返
+        # 仍会被拦截，避免前视点跳到路径反向段。
+        - name: max_lookahead_turn_angle_deg
+          value: 150.0
+
+        # 源码还提供 path_timeout 参数（本文件未覆盖，默认 1.0 秒）。当
+        # “里程计时间戳 - 路径时间戳”大于该值时，本次里程计回调不发布目标；
+        # 若系统负载较高导致路径更新较慢，可显式配置该参数，但不宜无限放大，
+        # 否则机器人可能继续追踪已经失效的旧路径。
+
+        # 与规划器保持相同的时钟来源，确保路径超时和 TF 时间戳可比较。
         - name: use_sim_time
           value: $(var use_sim_time)

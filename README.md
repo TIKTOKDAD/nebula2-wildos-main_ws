@@ -39,6 +39,8 @@ This work presents **WildOS**, a unified system for long-range, open-vocabulary 
 
 Furthermore, we introduce a **particle-filter-based method for coarse localization** of the open-vocabulary target query, that estimates candidate goal positions beyond the robot's immediate depth horizon, enabling effective planning toward distant goals. Extensive closed-loop field experiments across diverse off-road and urban terrains demonstrate that WildOS enables robust navigation, significantly outperforming purely geometric and purely vision-based baselines in both efficiency and autonomy.
 
+colcon build --symlink-install --packages-select graphnav_msgs object_search_msgs gps_visualization graaf_vendor graphnav_builder graphnav_planner triangulation3d visual_navigation a300_path_visualization dlio_odom_twist_adapter graphnav_nav2_bridge
+
 <br>
 
 ## 📁 Repository Structure

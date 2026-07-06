@@ -17,6 +17,14 @@ from rclpy.qos import QoSProfile
 from rclpy.qos import ReliabilityPolicy
 
 
+DEFAULT_MIN_UPDATE_DISTANCE = 0.8
+DEFAULT_MIN_UPDATE_YAW = 0.45
+DEFAULT_MIN_UPDATE_PERIOD = 0.5
+DEFAULT_URGENT_UPDATE_DISTANCE = 1.6
+DEFAULT_URGENT_UPDATE_YAW = 0.9
+DEFAULT_URGENT_UPDATE_PERIOD = 0.2
+
+
 def quaternion_yaw(message: PoseStamped) -> float:
     """Return the planar yaw represented by a PoseStamped quaternion."""
     quaternion = message.pose.orientation
@@ -80,9 +88,18 @@ class GoalPoseToNav2(Node):
         self.declare_parameter(
             'action_name', '/graphnav_navigate_to_pose'
         )
-        self.declare_parameter('min_update_distance', 0.5)
-        self.declare_parameter('min_update_yaw', 0.35)
-        self.declare_parameter('min_update_period', 1.0)
+        self.declare_parameter(
+            'min_update_distance', DEFAULT_MIN_UPDATE_DISTANCE
+        )
+        self.declare_parameter('min_update_yaw', DEFAULT_MIN_UPDATE_YAW)
+        self.declare_parameter('min_update_period', DEFAULT_MIN_UPDATE_PERIOD)
+        self.declare_parameter(
+            'urgent_update_distance', DEFAULT_URGENT_UPDATE_DISTANCE
+        )
+        self.declare_parameter('urgent_update_yaw', DEFAULT_URGENT_UPDATE_YAW)
+        self.declare_parameter(
+            'urgent_update_period', DEFAULT_URGENT_UPDATE_PERIOD
+        )
         self.declare_parameter('goal_input_timeout', 2.0)
         self.declare_parameter('server_retry_period', 0.5)
         self.declare_parameter('flatten_to_2d', True)
@@ -97,6 +114,15 @@ class GoalPoseToNav2(Node):
         )
         self.min_update_period = float(
             self.get_parameter('min_update_period').value
+        )
+        self.urgent_update_distance = float(
+            self.get_parameter('urgent_update_distance').value
+        )
+        self.urgent_update_yaw = float(
+            self.get_parameter('urgent_update_yaw').value
+        )
+        self.urgent_update_period = float(
+            self.get_parameter('urgent_update_period').value
         )
         self.goal_input_timeout = float(
             self.get_parameter('goal_input_timeout').value
@@ -114,6 +140,12 @@ class GoalPoseToNav2(Node):
             raise ValueError('min_update_yaw must be non-negative')
         if self.min_update_period < 0.0:
             raise ValueError('min_update_period must be non-negative')
+        if self.urgent_update_distance < 0.0:
+            raise ValueError('urgent_update_distance must be non-negative')
+        if self.urgent_update_yaw < 0.0:
+            raise ValueError('urgent_update_yaw must be non-negative')
+        if self.urgent_update_period < 0.0:
+            raise ValueError('urgent_update_period must be non-negative')
         if self.goal_input_timeout <= 0.0:
             raise ValueError('goal_input_timeout must be positive')
         if retry_period <= 0.0:
@@ -144,7 +176,10 @@ class GoalPoseToNav2(Node):
         self.get_logger().info(
             f'Listening on {goal_topic}; forwarding to {action_name}; '
             f'distance threshold={self.min_update_distance:.2f} m, '
-            f'period={self.min_update_period:.2f} s'
+            f'period={self.min_update_period:.2f} s, '
+            f'urgent threshold={self.urgent_update_distance:.2f} m/'
+            f'{self.urgent_update_yaw:.2f} rad, '
+            f'urgent period={self.urgent_update_period:.2f} s'
         )
 
     def now_seconds(self) -> float:
@@ -223,7 +258,18 @@ class GoalPoseToNav2(Node):
         """Send the pending goal when Nav2 and the rate limiter are ready."""
         if self.pending_goal is None or self.send_in_progress:
             return
-        if self.now_seconds() - self.last_send_time < self.min_update_period:
+        update_period = self.min_update_period
+        if (
+            self.last_sent_goal is not None
+            and goal_changed(
+                self.pending_goal,
+                self.last_sent_goal,
+                self.urgent_update_distance,
+                self.urgent_update_yaw,
+            )
+        ):
+            update_period = self.urgent_update_period
+        if self.now_seconds() - self.last_send_time < update_period:
             return
         if not self.client.server_is_ready():
             if not self.server_warning_printed:
@@ -266,6 +312,7 @@ class GoalPoseToNav2(Node):
                 f'Failed to send Nav2 goal #{sequence}: {error}'
             )
             if sequence == self.current_sequence:
+                self.pending_goal = deepcopy(self.last_sent_goal)
                 self.last_sent_goal = None
             self.try_send()
             return
@@ -273,6 +320,7 @@ class GoalPoseToNav2(Node):
         if not goal_handle.accepted:
             self.get_logger().warning(f'Nav2 rejected goal #{sequence}')
             if sequence == self.current_sequence:
+                self.pending_goal = deepcopy(self.last_sent_goal)
                 self.last_sent_goal = None
             self.try_send()
             return
@@ -330,7 +378,8 @@ def main(args=None) -> None:
         pass
     finally:
         node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()
 
 
 if __name__ == '__main__':

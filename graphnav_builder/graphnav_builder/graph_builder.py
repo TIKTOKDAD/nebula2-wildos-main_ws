@@ -14,7 +14,7 @@ from geometry_msgs.msg import Point, Pose
 from graphnav_builder.utils.graph_data import (
     Cell,
     distance_xy,
-    distance_xyz,
+    distance_pose,
     GraphNodeState,
     GraphState,
     make_uuid,
@@ -43,9 +43,12 @@ class SparseGraphBuilder:
         sample_against_new_nodes: bool = True,
         frontier_connectivity: int = 4,
         validate_frontier_paths: bool = True,
+        keep_frontiers_outside_grid: bool = False,
+        prune_historical_frontiers_by_explored_radius: bool = True,
         validate_historical_edges: bool = True,
         ensure_robot_anchor: bool = True,
         edge_cost_mode: str = 'euclidean',
+        edge_distance_mode: str = '3d',
         traversability_cost_weight: float = 1.0,
         min_x: float = -math.inf,
         max_x: float = math.inf,
@@ -56,7 +59,7 @@ class SparseGraphBuilder:
 
         ``max_free_radius`` 控制节点覆盖范围，``traversable_radius`` 是机器人
         足迹所需净空，``edge_radius`` 限制候选连边长度；其余开关分别控制采样
-        稀疏化、前沿邻接、历史边验证、机器人锚点和可选风险代价。
+        稀疏化、前沿邻接、历史前沿清理、历史边验证、机器人锚点和可选风险代价。
         """
         # 参数检查在构造期完成，避免在更新循环中因无效几何约束产生隐性错误。
         if max_free_radius <= 0.0:
@@ -74,6 +77,9 @@ class SparseGraphBuilder:
                 'edge_cost_mode must be euclidean or '
                 'integrated_traversability'
             )
+        edge_distance_mode = str(edge_distance_mode).lower()
+        if edge_distance_mode not in ('2d', '3d'):
+            raise ValueError("edge_distance_mode must be '2d' or '3d'")
 
         # 将数值参数冻结为普通 float/int，避免 ROS 参数类型或 numpy 标量泄漏到热路径。
         self.max_free_radius = float(max_free_radius)
@@ -83,9 +89,14 @@ class SparseGraphBuilder:
         self.sample_against_new_nodes = bool(sample_against_new_nodes)
         self.frontier_connectivity = int(frontier_connectivity)
         self.validate_frontier_paths = bool(validate_frontier_paths)
+        self.keep_frontiers_outside_grid = bool(keep_frontiers_outside_grid)
+        self.prune_historical_frontiers_by_explored_radius = bool(
+            prune_historical_frontiers_by_explored_radius
+        )
         self.validate_historical_edges = bool(validate_historical_edges)
         self.ensure_robot_anchor = bool(ensure_robot_anchor)
         self.edge_cost_mode = edge_cost_mode
+        self.edge_distance_mode = edge_distance_mode
         self.traversability_cost_weight = float(
             traversability_cost_weight
         )
@@ -402,8 +413,8 @@ class SparseGraphBuilder:
         """执行算法 4：清理、检测并安全地归属几何前沿点。
 
         前沿点位于“自由格相邻未知格”的未知格中心，却归属到可安全接近它的
-        最近图节点。历史前沿会在变已知、离开地图或被探索覆盖时删除；启用
-        ``validate_frontier_paths`` 时还会删除失去安全路径的历史前沿。
+        最近图节点。历史前沿在当前图内被证实变已知或失去安全路径时删除；
+        是否因离开当前 GridMap 或落入探索覆盖半径而删除由独立参数控制。
         """
         frontier_update_start = time.perf_counter()
         timings = {
@@ -521,14 +532,23 @@ class SparseGraphBuilder:
                 # 将历史点重新投回当前栅格，逐项验证仍满足前沿定义和安全接近。
                 xy = (point.x, point.y)
                 cell = grid.xy_to_cell(xy)
-                # 以下任一条件都破坏前沿语义：已离开图、已知、已探索或终点不允许。
+                if cell is None:
+                    # 滚动局部图看不到该历史前沿时，保守模式会继续保留；严格
+                    # 当前帧模式则将其删除，避免地图外前沿长期残留。
+                    if self.keep_frontiers_outside_grid:
+                        kept_frontier_points.append(point)
+                    continue
+
+                # 以下任一条件都破坏当前可见范围内的前沿语义：终点不允许、已知，
+                # 或按配置被其他节点的 explored radius 覆盖。owner 自身半径恰好
+                # 触及边界时不能把自己的前沿反复删掉重建。
                 if (
-                    cell is None
-                    or not grid.is_frontier_endpoint_allowed(cell)
+                    not grid.is_frontier_endpoint_allowed(cell)
                     or grid.is_known(cell)
-                    # 论文清理的是落入“其他节点” explored radius 的 frontier；
-                    # owner 自身半径恰好触及边界时不能把自己的前沿反复删掉重建。
-                    or frontier_is_explored(cell, xy, owner_idx)
+                    or (
+                        self.prune_historical_frontiers_by_explored_radius
+                        and frontier_is_explored(cell, xy, owner_idx)
+                    )
                 ):
                     continue
                 # 安全模式重新证明历史 owner 的直线接近仍然成立；快速模式与
@@ -847,11 +867,12 @@ class SparseGraphBuilder:
         集成模式并非改变可通行性判定，而是在已有效的边上以平均风险放大距离，
         供能处理风险权重的下游规划器选择。
         """
-        # 使用 3D 距离使坡度/台阶的高程差反映到代价中；下限保证权重严格为正。
+        # 下限保证权重严格为正；距离维度由 edge_distance_mode 控制。
         base_cost = max(
-            distance_xyz(
+            distance_pose(
                 self.nodes[from_idx].pose,
                 self.nodes[to_idx].pose,
+                self.edge_distance_mode,
             ),
             1e-3,
         )
