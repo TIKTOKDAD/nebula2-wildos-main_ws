@@ -45,7 +45,10 @@ model_precision: FP16
 
 # 同时参与同步与推理的相机数。当前代码只接受 1 或 3。
 # 相机占位符按 CAMERA_MAPPING 展开为 "0"、"1"、"2"。
-num_cameras: 3
+# num_cameras: 3
+
+# sout mini 只有一个
+num_cameras: 1
 
 # 相机图像是否倒置。true 时输入图像旋转 180°，投影出的前沿像素坐标也同步翻转。
 cams_inverted: false
@@ -130,12 +133,12 @@ compute_paths: true
 # ========================== ROS 2 坐标系与话题 =========================
 
 # 以下为 Scout/单相机示例。切换平台时应整组替换，并同步设置 num_cameras。
-# parent_frame: odom
-# cam_frame: camera_color_optical_frame
-# camera_img_topic: /camera/camera/color/image_raw/compressed
-# camera_info_topic: /camera/camera/color/camera_info
-# odometry_topic: /dlio/odom_node/odom
-# navigation_graph_topic: /nav_graph
+parent_frame: odom
+cam_frame: camera_color_optical_frame
+camera_img_topic: /camera/camera/color/image_raw/compressed
+camera_info_topic: /camera/camera/color/camera_info
+odometry_topic: /dlio/odom_node/odom
+navigation_graph_topic: /nav_graph
 
 # 以下为 Spot 三相机示例；{} 会依次替换为 0、1、2。
 # parent_frame: spot1/odom
@@ -148,23 +151,23 @@ compute_paths: true
 # 当前启用：仿真/当前 A300 话题配置。
 # 全局父坐标系。里程计消息 header.frame_id 必须与此字符串完全一致；
 # 节点还会查询 parent_frame <- cam_frame 的时间同步 TF。
-parent_frame: odom
+# parent_frame: odom
 
-# 相机光学坐标系模板，{} 按相机索引替换。
-cam_frame: camera_{}_color_optical_frame
+# # 相机光学坐标系模板，{} 按相机索引替换。
+# cam_frame: camera_{}_color_optical_frame
 
-# 图像话题模板。名称中含 compressed 时订阅 sensor_msgs/CompressedImage，
-# 否则订阅 sensor_msgs/Image，因此名称和真实消息类型必须匹配。
-camera_img_topic: /a300_0000/sensors/camera_{}/color/compressed
+# # 图像话题模板。名称中含 compressed 时订阅 sensor_msgs/CompressedImage，
+# # 否则订阅 sensor_msgs/Image，因此名称和真实消息类型必须匹配。
+# camera_img_topic: /a300_0000/sensors/camera_{}/color/compressed
 
-# CameraInfo 话题模板；内参 K、图像宽高及 frame_id 从消息中读取。
-camera_info_topic: /a300_0000/sensors/camera_{}/color/camera_info
+# # CameraInfo 话题模板；内参 K、图像宽高及 frame_id 从消息中读取。
+# camera_info_topic: /a300_0000/sensors/camera_{}/color/camera_info
 
-# 里程计输入话题；其时间戳也作为同步消息组查询相机 TF 的时间。
-odometry_topic: /dlio/odom_node/odom
+# # 里程计输入话题；其时间戳也作为同步消息组查询相机 TF 的时间。
+# odometry_topic: /dlio/odom_node/odom
 
-# 上游未评分 NavigationGraph 输入话题。
-navigation_graph_topic: /nav_graph
+# # 上游未评分 NavigationGraph 输入话题。
+# navigation_graph_topic: /nav_graph
 
 # ============================ ROS 2 输出话题 ===========================
 
@@ -215,9 +218,9 @@ syncsub_slop: 0.03
 
 # 仅在启动参数 do_object_search:=true 时使用；普通探索模式会忽略本节。
 object_search_config:
-    # 文本查询列表。当前实现明确只支持一个查询，多个条目会触发断言。
+    # 文本查询列表。当前实现明确只支持一个查询，多个条目会触发断言。  NASA logo
     text_queries:
-        - "NASA logo"
+        - "yellow cube" 
 
     # 文本相似度定位是否启用像素级分割流程；false 使用非像素级定位结果。
     pixel_level_seg: false

@@ -9,6 +9,14 @@ a300_path_recorder:
     # 输出是标准 nav_msgs/Path；在 RViz 中添加 Path Display 后选择此话题。
     path_topic: "/a300_0000/driven_path"
 
+    # 从节点启动以来的累计行驶长度，消息类型 std_msgs/msg/Float64，单位为米。
+    path_length_topic: "/a300_0000/driven_path_length"
+
+    # RViz 文本标记：跟随车辆位置显示累计长度。
+    path_length_marker_topic: "/a300_0000/driven_path_length_marker"
+    marker_z_offset: 1.5
+    marker_text_height: 0.4
+
     # 车辆在 XY 平面至少移动 5 cm 才增加一个点。
     # 数值越小轨迹越细，但消息更大；对当前 A300，0.05 m 足够平滑。
     min_sample_distance: 0.05

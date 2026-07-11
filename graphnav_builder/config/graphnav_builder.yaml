@@ -33,8 +33,8 @@ graphnav_builder:
     observed_threshold: 0.5
     # 通行性数值方向：higher_is_safer（高分安全）或 lower_is_safer（低分安全）。
     traversability_semantics: higher_is_safer
-    # 自由/障碍分类阈值；比较方向由 traversability_semantics 决定。
-    safe_threshold: 0.4
+    # 自由/障碍分类阈值；比较方向由 traversability_semantics 决定。  #实体和 仿真主要是需要调节这个
+    safe_threshold: 0.05
     # 未知值规则：non_finite，或 negative_or_non_finite（负有限值也算未知）。
     unknown_value_policy: non_finite
 

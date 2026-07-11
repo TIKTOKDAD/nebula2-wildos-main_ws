@@ -30,7 +30,7 @@ launch:
   # 若使用仿真时间但没有 /clock，涉及时间戳的 TF 查询和路径超时判断会异常。
   - arg:
       name: "use_sim_time"
-      default: "True"
+      default: "False"
       description: "Use simulation time"
 
   # 是否把 ROS 公共管理话题（rosout、parameter_events、diagnostics）放入 ns。
@@ -75,7 +75,7 @@ launch:
         # virtual_edge_cost 来自下面的 frontier_cost 或 goal_cost。
         # 两个系数都应为非负数；设大的一段会在选路中被更重惩罚。
         - name: graph_path_cost_factor
-          value: 2.0
+          value: 3.0
 
         - name: virtual_edge_cost_factor
           value: 1.0
@@ -232,7 +232,7 @@ launch:
         # 并在距离跨过该阈值的相邻两点间插值；它不是沿路径累计的弧长。
         # 较大值通常更平滑但可能切弯，较小值跟踪更紧但对路径抖动更敏感。
         - name: wp_lookahead_dist
-          value: 5.0
+          value: 7.0
 
         # 是否启用急弯限制。false 表示不检查相邻路径段夹角；true 时才使用
         # max_lookahead_turn_angle_deg，防止前视点越过过大的路径折角。

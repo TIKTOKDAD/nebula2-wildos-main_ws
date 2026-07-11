@@ -18,6 +18,10 @@
   <depend>nav_msgs</depend>
   <!-- geometry_msgs：Path 中每个 PoseStamped 轨迹点的消息类型。 -->
   <depend>geometry_msgs</depend>
+  <!-- std_msgs：输出累计行驶长度 Float64，单位为米。 -->
+  <depend>std_msgs</depend>
+  <!-- visualization_msgs：在 RViz 中显示累计行驶长度文本。 -->
+  <depend>visualization_msgs</depend>
 
   <!-- Python launch 文件运行时需要的依赖。 -->
   <exec_depend>ament_index_python</exec_depend>

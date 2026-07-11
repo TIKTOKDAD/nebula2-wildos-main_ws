@@ -11,6 +11,8 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(std_msgs REQUIRED)
+find_package(visualization_msgs REQUIRED)
 
 # 轨迹节点：订阅 Odometry，累计车辆实际走过的位置并发布 nav_msgs/Path。
 add_executable(a300_path_recorder src/a300_path_recorder.cpp)
@@ -20,6 +22,8 @@ ament_target_dependencies(
   rclcpp
   nav_msgs
   geometry_msgs
+  std_msgs
+  visualization_msgs
 )
 
 # ROS 2 约定把可执行文件安装到 lib/<package_name>，供 ros2 run/launch 查找。

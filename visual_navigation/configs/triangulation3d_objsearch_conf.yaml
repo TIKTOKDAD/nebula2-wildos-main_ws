@@ -20,7 +20,9 @@
 # 参与目标 mask 三角定位的相机数量。源码只支持 1 或 3。
 # 3 相机模式下，cam_frame 中的 {} 会依次替换为 "0"、"1"、"2"。
 # 该值必须与 WildOS 发布的 ObjectMaskWithTf.cam_infos 和 object_mask 第一维一致。
-num_cameras: 3
+# num_cameras: 3
+
+num_cameras: 1  #sout mini
 
 # 三角定位使用的全局/父坐标系。
 # 节点会把目标估计结果表达在该坐标系下，并用它作为导航目标和 RViz marker
@@ -35,12 +37,14 @@ parent_frame: "odom"
 #   camera_0_color_optical_frame
 #   camera_1_color_optical_frame
 #   camera_2_color_optical_frame
-cam_frame: "camera_{}_color_optical_frame"
+# cam_frame: "camera_{}_color_optical_frame"   #smi 仿真
+cam_frame: "camera_color_optical_frame"  #sout mini
 
 # LiDAR 点云所在坐标系。
 # 节点会断言输入 PointCloud2.header.frame_id 与该值完全一致；不一致会直接报错。
 # 同时需要 TF 树里能查询 camera <- lidar 的变换，才能把点云投影到图像 mask 上。
-lidar_frame: "lidar3d_0_sensor_link"
+# lidar_frame: "lidar3d_0_sensor_link"  #smi 仿真
+lidar_frame: "rslidar"   #sout mini
 
 # 视觉目标 mask 输入话题。
 # WildOS 在目标搜索模式下发布 ObjectMaskWithTf，里面包含：
@@ -49,11 +53,12 @@ lidar_frame: "lidar3d_0_sensor_link"
 #   - odom 消息
 #   - odom <- camera 的 TF
 # 当前 WildOS 代码里 object_mask 发布话题为 /spot1/object_mask，所以这里要匹配它。
-object_mask_topic: "/spot1/object_mask"
+object_mask_topic: "/spot1/object_mask"  
 
 # LiDAR 点云输入话题。
 # 该点云会被投影到每个相机图像上，用来判断 mask 内是否有足够多的 LiDAR 点。
-lidar_topic: "/a300_0000/sensors/lidar3d_0/points"
+# lidar_topic: "/a300_0000/sensors/lidar3d_0/points"    #smi 仿真
+lidar_topic: "/rslidar_points"    # sout mini 
 
 # ============================== 输出话题 ==============================
 

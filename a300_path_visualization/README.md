@@ -8,7 +8,10 @@ RViz 中显示车辆已经走过的实际轨迹。
 ```text
 /dlio/odom_node/odom
         -> a300_path_recorder
-        -> /a300_0000/driven_path
+        -> /a300_0000/driven_path         (nav_msgs/Path)
+        -> /a300_0000/driven_path_length  (std_msgs/Float64，单位：m)
+        -> /a300_0000/driven_path_length_marker
+                                             (visualization_msgs/Marker)
 ```
 
 ## 构建
@@ -35,6 +38,26 @@ ros2 launch a300_path_visualization a300_path_visualization.launch.py
 3. 把 Path 的 `Topic` 设置为 `/a300_0000/driven_path`。
 4. 根据需要调整颜色和线宽。
 
+要在 RViz 中显示累计行驶长度：
+
+1. 点击 `Add`，选择 `Marker`。
+2. 把 Marker 的 `Topic` 设置为
+   `/a300_0000/driven_path_length_marker`。
+3. 文字会跟随最新车辆位置，并显示在车体上方。
+
 配置文件为 `config/a300_path_visualization.yaml`。其中
 `min_sample_distance` 控制轨迹点间距，`max_path_points` 防止历史轨迹无限增长，
 `publish_rate` 只控制完整 Path 的发送频率，不影响轨迹点采样精度。
+
+## 查看累计行驶长度
+
+节点会把从本次启动以来的累计行驶长度发布为米。即使轨迹点超过
+`max_path_points`、最旧的显示点被删除，累计长度也会继续保留：
+
+```bash
+ros2 topic echo /a300_0000/driven_path_length
+```
+
+长度由相邻采样点的 XY 平面距离累加得到；节点重启后从 0 重新累计。
+文本的悬浮高度和字号可分别通过 `marker_z_offset` 与
+`marker_text_height` 参数调整。

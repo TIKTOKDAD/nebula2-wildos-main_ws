@@ -1,6 +1,7 @@
 from pathlib import Path
 import xml.etree.ElementTree as ET
 
+import pytest
 import yaml
 
 
@@ -114,3 +115,34 @@ def test_a300_graphnav_nav2_stack_is_forward_only():
 
     behavior_tree = ET.parse(BT_PATH)
     assert not behavior_tree.findall('.//BackUp')
+
+
+def test_high_speed_limits_are_consistent_across_control_chain():
+    config = yaml.safe_load(CONFIG_PATH.read_text(encoding='utf-8'))
+
+    follow_path = config['controller_server']['ros__parameters']['FollowPath']
+    velocity_smoother = config['velocity_smoother']['ros__parameters']
+
+    assert follow_path['vx_max'] == 5.0
+    assert follow_path['wz_max'] == 3.1
+    assert velocity_smoother['max_velocity'] == [5.0, 0.0, 3.1]
+    assert velocity_smoother['min_velocity'] == [0.0, 0.0, -3.1]
+
+    local = config['local_costmap']['local_costmap']['ros__parameters']
+    predicted_forward_distance = (
+        follow_path['vx_max'] * follow_path['time_steps'] * follow_path['model_dt']
+    )
+    assert local['width'] / 2.0 > predicted_forward_distance
+    assert local['obstacle_layer']['scan']['obstacle_max_range'] > (
+        predicted_forward_distance
+    )
+
+
+def test_mppi_horizon_matches_seven_meter_lookahead_cruise_speed():
+    config = yaml.safe_load(CONFIG_PATH.read_text(encoding='utf-8'))
+
+    follow_path = config['controller_server']['ros__parameters']['FollowPath']
+    horizon = follow_path['time_steps'] * follow_path['model_dt']
+
+    assert horizon == pytest.approx(2.35)
+    assert 7.0 / horizon == pytest.approx(3.0, rel=0.01)

@@ -58,15 +58,16 @@ controller_server:
       angular_dist_threshold: 0.55
       angular_disengage_threshold: 0.35
       forward_sampling_distance: 0.8
-      rotate_to_heading_angular_vel: 0.8
-      max_angular_accel: 1.6
+      rotate_to_heading_angular_vel: 1.6
+      max_angular_accel: 3.1
       simulate_ahead_time: 1.2
       rotate_to_goal_heading: false
       rotate_to_heading_once: false
       closed_loop: true
       use_path_orientations: false
       motion_model: DiffDrive
-      time_steps: 56
+      # 7 m GraphNav look-ahead / 2.35 s horizon ~= 3.0 m/s cruise speed.
+      time_steps: 47
       model_dt: 0.05
       batch_size: 2000
       iteration_count: 1
@@ -74,15 +75,15 @@ controller_server:
       ax_min: -2.8
       ay_max: 0.0
       ay_min: 0.0
-      az_max: 2.0
-      vx_std: 1.1
+      az_max: 3.8
+      vx_std: 2.1
       vy_std: 0.001
-      wz_std: 0.7
-      vx_max: 2.6
+      wz_std: 1.4
+      vx_max: 5.0
       # GraphNav 前视目标要求车头先转向，再正向驶入；不允许倒车接近局部目标。
       vx_min: 0.0
       vy_max: 0.0
-      wz_max: 1.6
+      wz_max: 3.1
       prune_distance: 4.8
       transform_tolerance: 0.3
       temperature: 0.3
@@ -162,8 +163,8 @@ local_costmap:
       global_frame: odom
       robot_base_frame: base_link
       rolling_window: true
-      width: 12
-      height: 12
+      width: 32
+      height: 32
       resolution: 0.05
       footprint: "[[-0.58, -0.38], [-0.58, 0.38], [0.58, 0.38], [0.58, -0.38]]"
       footprint_padding: 0.03
@@ -179,9 +180,9 @@ local_costmap:
           clearing: true
           inf_is_valid: true
           obstacle_min_range: 0.3
-          obstacle_max_range: 8.0
+          obstacle_max_range: 15.0
           raytrace_min_range: 0.9
-          raytrace_max_range: 10.0
+          raytrace_max_range: 18.0
           max_obstacle_height: 2.0
       inflation_layer:
         plugin: nav2_costmap_2d::InflationLayer
@@ -269,9 +270,9 @@ behavior_server:
     robot_base_frame: base_link
     transform_tolerance: 0.3
     simulate_ahead_time: 2.0
-    max_rotational_vel: 1.2
+    max_rotational_vel: 2.3
     min_rotational_vel: 0.1
-    rotational_acc_lim: 2.0
+    rotational_acc_lim: 3.8
 
 velocity_smoother:
   ros__parameters:
@@ -280,10 +281,10 @@ velocity_smoother:
     stamp_smoothed_velocity_with_smoothing_time: false
     scale_velocities: false
     feedback: OPEN_LOOP
-    max_velocity: [2.6, 0.0, 1.6]
-    min_velocity: [0.0, 0.0, -1.6]
-    max_accel: [2.8, 0.0, 1.6]
-    max_decel: [-2.8, 0.0, -1.6]
+    max_velocity: [5.0, 0.0, 3.1]
+    min_velocity: [0.0, 0.0, -3.1]
+    max_accel: [2.8, 0.0, 3.1]
+    max_decel: [-2.8, 0.0, -3.1]
     odom_topic: /dlio/odom_node/odom_body_twist
     odom_duration: 0.2
     deadband_velocity: [0.0, 0.0, 0.0]
